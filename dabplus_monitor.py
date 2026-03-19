@@ -190,9 +190,7 @@ class DABPlusMonitor:
             f"welle-cli "
             f"-c {channel} "
             f"{gain_arg} "
-            f"{decode_mode}w {self.welle_port} "
-            f"--disable-coarse-corrector"
-            # ppm : welle-cli utilise le driver rtl_sdr directement
+            f"{decode_mode}w {self.welle_port}"
         )
 
         logger.info(f"Lancement : {cmd}")
@@ -397,17 +395,19 @@ class DABPlusMonitor:
                 state.present   = True
                 state.last_seen = now
 
-                # Détection silence
+                # Détection silence (ignorer services fantômes sans vrai label)
+                real_service = label not in ('..', '.', '') and len(label) > 2
                 threshold = float(self.mon_cfg.get('audio_silence_threshold', -60.0))
                 audio_avg = (state.audio_l + state.audio_r) / 2.0
-                if audio_avg <= threshold:
+                if real_service and audio_avg <= threshold:
                     if state.silence_start is None:
                         state.silence_start = now
                 else:
                     if state.silence_start is not None:
                         state.silence_start      = None
                         state.silence_alert_sent = False
-                        logger.info(f"Audio rétabli : {label}")
+                        if real_service:
+                            logger.info(f"Audio rétabli : {label}")
 
             # Services absents
             for sid, state in self.services.items():

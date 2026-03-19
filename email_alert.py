@@ -20,8 +20,8 @@ class EmailAlert:
             config = json.load(f)
 
         self.config = config['email']
-        self.station_name = config['station']['name']
-        self.frequency = config['station']['frequency_display']
+        self.station_name = config.get('ensemble', {}).get('name', 'DAB+ Monitor')
+        self.frequency = str(config.get('ensemble', {}).get('frequency_mhz', '')) + ' MHz'
 
         self.last_alert_time = None
         self.cooldown = timedelta(minutes=self.config.get('cooldown_minutes', 1))  # 1 minute par défaut

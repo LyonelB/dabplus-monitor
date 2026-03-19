@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAB+ Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-green  { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+    .dot-orange { background: #f97316; box-shadow: 0 0 6px #f9731688; }
+    .dot-red    { background: #ef4444; box-shadow: 0 0 6px #ef444488; }
+    .dot-gray   { background: #9ca3af; }
+    .vu-bar { height: 6px; border-radius: 3px; transition: width 0.2s ease; }
+    .service-card { cursor: pointer; transition: all 0.15s; border: 2px solid transparent; }
+    .service-card:hover { border-color: #6366f1; background: #f0f0ff; }
+    .service-card.active { border-color: #6366f1; background: #eef2ff; }
+    .scan-channel { cursor: pointer; transition: all 0.15s; }
+    .scan-channel:hover { background: #f0f0ff; border-color: #6366f1; }
+    #scan-progress-bar { transition: width 0.4s ease; }
+    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 8px; color: #64748b; font-size: 0.875rem; font-weight: 500; transition: all 0.15s; text-decoration: none; }
+    .sidebar-link:hover, .sidebar-link.active { background: #eef2ff; color: #6366f1; }
+    .sidebar-link svg { width: 18px; height: 18px; flex-shrink: 0; }
+    @keyframes pulse-ring { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .pulse { animation: pulse-ring 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-slate-50">
+
+<!-- ═══════════════════════════════════════════════════════ SIDEBAR -->
+<aside class="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 h-screen">
+  <div class="p-5 border-b border-gray-100">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
+      <div>
+        <div class="text-sm font-semibold text-gray-900">DAB+ Monitor</div>
+        <div class="text-xs text-gray-400" id="sidebar-ensemble">—</div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+    <a href="/" class="sidebar-link active">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      Dashboard
+    </a>
+    <a href="/stats" class="sidebar-link">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Statistiques
+    </a>
+    <a href="/config" class="sidebar-link">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+      Configuration
+    </a>
+    <a href="/about" class="sidebar-link">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      À propos
+    </a>
+  </nav>
+
+  <!-- État monitoring sidebar -->
+  <div class="p-4 border-t border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs text-gray-500">Canal actif</span>
+      <span class="text-xs font-mono font-semibold text-indigo-600" id="sidebar-channel">—</span>
+    </div>
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-xs text-gray-500">SNR</span>
+      <span class="text-xs font-mono font-semibold text-gray-700" id="sidebar-snr">— dB</span>
+    </div>
+    <button onclick="openScanModal()" class="w-full py-2 px-3 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors">
+      🔍 Scanner les canaux
+    </button>
+    <a href="/logout" class="block mt-2 text-center text-xs text-gray-400 hover:text-gray-600">Déconnexion</a>
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════ MAIN -->
+<main class="flex-1 flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
+    <div>
+      <h1 class="text-base font-semibold text-gray-900" id="header-ensemble">DAB+ Monitor</h1>
+      <p class="text-xs text-gray-400" id="header-freq">—</p>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1.5">
+        <span class="dot dot-gray" id="ensemble-dot"></span>
+        <span class="text-xs text-gray-500" id="ensemble-status">En attente</span>
+      </div>
+      <div class="text-xs font-mono text-gray-400" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <!-- Contenu scrollable -->
+  <div class="flex-1 overflow-y-auto p-5 space-y-4">
+
+    <!-- ── Bloc RF global ──────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-gray-100 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Signal RF — Multiplex</span>
+        <span class="text-xs text-gray-400" id="rf-nb-services">— services</span>
+      </div>
+      <div class="grid grid-cols-4 gap-4">
+
+        <!-- SNR -->
+        <div>
+          <div class="text-xs text-gray-400 mb-1">SNR</div>
+          <div class="text-lg font-mono font-bold text-gray-900 mb-1" id="rf-snr">—</div>
+          <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+            <div class="vu-bar w-0 bg-green-400" id="rf-snr-bar"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 font-mono mt-0.5"><span>0</span><span>20 dB</span></div>
+        </div>
+
+        <!-- FIC Quality -->
+        <div>
+          <div class="text-xs text-gray-400 mb-1">FIC Quality</div>
+          <div class="text-lg font-mono font-bold text-gray-900 mb-1" id="rf-fic">—</div>
+          <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+            <div class="vu-bar w-0 bg-green-400" id="rf-fic-bar"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 font-mono mt-0.5"><span>0</span><span>100%</span></div>
+        </div>
+
+        <!-- Gain -->
+        <div>
+          <div class="text-xs text-gray-400 mb-1">Gain RTL-SDR</div>
+          <div class="text-lg font-mono font-bold text-gray-900 mb-1" id="rf-gain">—</div>
+          <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+            <div class="vu-bar w-0 bg-blue-400" id="rf-gain-bar"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 font-mono mt-0.5"><span>0</span><span>50 dB</span></div>
+        </div>
+
+        <!-- EnsembleID / Freq corr -->
+        <div>
+          <div class="text-xs text-gray-400 mb-1">Ensemble ID</div>
+          <div class="text-sm font-mono font-bold text-gray-900 mb-1" id="rf-eid">—</div>
+          <div class="text-xs text-gray-400 mt-2">Correction fréq.</div>
+          <div class="text-xs font-mono text-gray-600" id="rf-freqcorr">—</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Grille services ─────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-gray-100 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Services du bouquet</span>
+        <span class="text-xs text-gray-400">Cliquer pour voir le détail</span>
+      </div>
+      <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2" id="services-grid">
+        <div class="text-xs text-gray-400 col-span-full text-center py-4">En attente du signal…</div>
+      </div>
+    </div>
+
+    <!-- ── Détail service ──────────────────────────────────────── -->
+    <div class="bg-white rounded-xl border border-gray-100 p-4" id="service-detail" style="display:none">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span class="dot dot-gray" id="detail-dot"></span>
+          <span class="text-sm font-bold text-gray-900" id="detail-label">—</span>
+          <span class="text-xs text-gray-400 font-mono" id="detail-sid">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono" id="detail-mode">—</span>
+          <button id="btn-stream" onclick="switchStream()" class="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition-colors font-medium">
+            ▶ Écouter
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+
+        <!-- Colonne gauche : Audio -->
+        <div class="space-y-3">
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Audio</div>
+
+          <!-- DLS -->
+          <div>
+            <div class="text-xs text-gray-400 mb-0.5">DLS (titre en cours)</div>
+            <div class="text-sm font-medium text-gray-800 truncate" id="detail-dls">—</div>
+          </div>
+
+          <!-- VU Left -->
+          <div>
+            <div class="flex justify-between text-xs text-gray-400 mb-1">
+              <span>Gauche</span>
+              <span class="font-mono" id="detail-audio-l">— dBFS</span>
+            </div>
+            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l"></div>
+            </div>
+          </div>
+
+          <!-- VU Right -->
+          <div>
+            <div class="flex justify-between text-xs text-gray-400 mb-1">
+              <span>Droite</span>
+              <span class="font-mono" id="detail-audio-r">— dBFS</span>
+            </div>
+            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r"></div>
+            </div>
+          </div>
+
+          <!-- Player audio -->
+          <div class="mt-2">
+            <audio id="audio-player" controls class="w-full h-8" style="display:none">
+              
+            </audio>
+          </div>
+        </div>
+
+        <!-- Colonne droite : Technique -->
+        <div class="space-y-3">
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Technique</div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <div class="text-gray-400">Bitrate</div>
+              <div class="font-mono font-semibold text-gray-800" id="detail-bitrate">—</div>
+            </div>
+            <div>
+              <div class="text-gray-400">Protection</div>
+              <div class="font-mono font-semibold text-gray-800" id="detail-prot">—</div>
+            </div>
+            <div>
+              <div class="text-gray-400">Langue</div>
+              <div class="font-mono font-semibold text-gray-800" id="detail-lang">—</div>
+            </div>
+            <div>
+              <div class="text-gray-400">Sous-canal</div>
+              <div class="font-mono font-semibold text-gray-800" id="detail-subch">—</div>
+            </div>
+            <div>
+              <div class="text-gray-400">Sample rate</div>
+              <div class="font-mono font-semibold text-gray-800" id="detail-samplerate">—</div>
+            </div>
+            <div>
+              <div class="text-gray-400">PTY</div>
+              <div class="font-mono font-semibold text-gray-800 truncate" id="detail-pty">—</div>
+            </div>
+          </div>
+
+          <!-- Compteurs d'erreurs -->
+          <div class="mt-2 pt-2 border-t border-gray-100">
+            <div class="text-xs text-gray-400 mb-1">Compteurs d'erreurs</div>
+            <div class="grid grid-cols-3 gap-1 text-xs">
+              <div class="text-center bg-gray-50 rounded p-1">
+                <div class="text-gray-400">AAC</div>
+                <div class="font-mono font-semibold" id="detail-err-aac">—</div>
+              </div>
+              <div class="text-center bg-gray-50 rounded p-1">
+                <div class="text-gray-400">Frame</div>
+                <div class="font-mono font-semibold" id="detail-err-frame">—</div>
+              </div>
+              <div class="text-center bg-gray-50 rounded p-1">
+                <div class="text-gray-400">RS</div>
+                <div class="font-mono font-semibold" id="detail-err-rs">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- fin contenu scrollable -->
+</main>
+
+<!-- ═══════════════════════════════════════════════════════ MODAL SCAN -->
+<div id="scan-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center" style="display:none!important">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+
+    <!-- Header modal -->
+    <div class="flex items-center justify-between p-5 border-b border-gray-100">
+      <div>
+        <h2 class="text-base font-semibold text-gray-900">Scan Band III</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Recherche des multiplex DAB+ disponibles (5A → 13F)</p>
+      </div>
+      <button onclick="closeScanModal()" class="text-gray-400 hover:text-gray-600 text-lg font-bold">✕</button>
+    </div>
+
+    <!-- Barre de progression -->
+    <div class="p-5 border-b border-gray-100" id="scan-progress-section" style="display:none">
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>Canal en cours : <span class="font-mono font-semibold text-indigo-600" id="scan-current-channel">—</span></span>
+        <span id="scan-progress-text">0 / 38</span>
+      </div>
+      <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
+        <div class="h-full bg-indigo-500 rounded-full w-0" id="scan-progress-bar"></div>
+      </div>
+      <div class="mt-2 text-xs text-gray-400 text-center" id="scan-found-count">0 multiplex détecté(s)</div>
+    </div>
+
+    <!-- Résultats -->
+    <div class="p-5 max-h-80 overflow-y-auto" id="scan-results-container">
+      <div class="text-xs text-gray-400 text-center py-8" id="scan-no-results">
+        Lance le scan pour découvrir les multiplex disponibles.
+      </div>
+      <div class="space-y-2" id="scan-results-list"></div>
+    </div>
+
+    <!-- Actions modal -->
+    <div class="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50">
+      <button id="btn-start-scan" onclick="startScan()"
+        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
+        🔍 Lancer le scan (~5 min)
+      </button>
+      <button id="btn-stop-scan" onclick="stopScan()" style="display:none"
+        class="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors">
+        ⏹ Arrêter
+      </button>
+      <span class="text-xs text-gray-400">Cliquer sur un multiplex pour l'activer</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// État global
+// ═══════════════════════════════════════════════════════════════
+let selectedSid   = null;
+let servicesData  = {};
+let scanEventSource = null;
+let statsEventSource = null;
+
+// ═══════════════════════════════════════════════════════════════
+// Horloge
+// ═══════════════════════════════════════════════════════════════
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('fr-FR');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════════════════════
+// SSE stats monitoring
+// ═══════════════════════════════════════════════════════════════
+function connectStats() {
+  if (statsEventSource) statsEventSource.close();
+  statsEventSource = new EventSource('/api/stream/stats');
+  statsEventSource.onmessage = e => {
+    try { updateDashboard(JSON.parse(e.data)); } catch(_) {}
+  };
+  statsEventSource.onerror = () => {
+    setTimeout(connectStats, 3000);
+  };
+}
+
+function updateDashboard(stats) {
+  const rf = stats.rf || {};
+
+  // ── Sidebar ──
+  document.getElementById('sidebar-ensemble').textContent =
+    rf.ensemble_label || '—';
+  document.getElementById('sidebar-channel').textContent =
+    stats.channel || '—';
+  document.getElementById('sidebar-snr').textContent =
+    rf.snr != null ? rf.snr.toFixed(1) + ' dB' : '— dB';
+
+  // ── Header ──
+  document.getElementById('header-ensemble').textContent =
+    rf.ensemble_label || 'DAB+ Monitor';
+  document.getElementById('header-freq').textContent =
+    stats.channel
+      ? `Canal ${stats.channel} — ${stats.frequency_mhz} MHz`
+      : '—';
+
+  // ── Dot ensemble ──
+  const dot    = document.getElementById('ensemble-dot');
+  const status = document.getElementById('ensemble-status');
+  if (stats.ensemble_ok) {
+    dot.className = 'dot dot-green';
+    status.textContent = 'Signal OK';
+  } else {
+    dot.className = 'dot dot-red pulse';
+    status.textContent = 'Signal dégradé';
+  }
+
+  // ── RF bloc ──
+  const snr = rf.snr || 0;
+  setRfField('rf-snr', snr.toFixed(1) + ' dB',
+    'rf-snr-bar', Math.min(snr / 20 * 100, 100),
+    snr >= 10 ? '#22c55e' : snr >= 5 ? '#f97316' : '#ef4444');
+
+  const fic = rf.fic_quality || 0;
+  setRfField('rf-fic', fic.toFixed(0) + ' %',
+    'rf-fic-bar', fic,
+    fic >= 90 ? '#22c55e' : fic >= 70 ? '#f97316' : '#ef4444');
+
+  const gain = rf.gain || 0;
+  setRfField('rf-gain', gain.toFixed(1) + ' dB',
+    'rf-gain-bar', Math.min(gain / 50 * 100, 100), '#60a5fa');
+
+  document.getElementById('rf-eid').textContent   = rf.ensemble_id || '—';
+  document.getElementById('rf-freqcorr').textContent =
+    rf.freq_corr != null ? rf.freq_corr.toFixed(0) + ' Hz' : '—';
+  document.getElementById('rf-nb-services').textContent =
+    (rf.nb_services || 0) + ' service(s)';
+
+  // ── Grille services ──
+  servicesData = stats.services || {};
+  updateServicesGrid(servicesData);
+
+  // ── Détail service actif ──
+  if (selectedSid && servicesData[selectedSid]) {
+    updateServiceDetail(servicesData[selectedSid]);
+  }
+}
+
+function setRfField(valId, val, barId, pct, color) {
+  document.getElementById(valId).textContent = val;
+  const bar = document.getElementById(barId);
+  bar.style.width    = pct + '%';
+  bar.style.background = color;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Grille services
+// ═══════════════════════════════════════════════════════════════
+function updateServicesGrid(services) {
+  const grid = document.getElementById('services-grid');
+  const sids = Object.keys(services);
+  if (!sids.length) return;
+
+  grid.innerHTML = '';
+  sids.sort((a, b) =>
+    (services[a].label || a).localeCompare(services[b].label || b)
+  ).forEach(sid => {
+    const svc   = services[sid];
+    const label = svc.label || sid;
+    const dot   = serviceDotClass(svc);
+    const isActive = sid === selectedSid;
+
+    const card = document.createElement('div');
+    card.className = `service-card rounded-lg p-2.5 border border-gray-100 bg-gray-50${isActive ? ' active' : ''}`;
+    card.onclick   = () => selectService(sid);
+    card.innerHTML = `
+      <div class="flex items-center gap-1.5 mb-1">
+        <span class="dot ${dot}"></span>
+        <span class="text-xs font-semibold text-gray-800 truncate">${escHtml(label)}</span>
+      </div>
+      <div class="text-xs text-gray-400 font-mono truncate">${svc.bitrate ? svc.bitrate + ' kbps' : '—'}</div>
+      <div class="text-xs text-gray-400 truncate mt-0.5" style="font-size:10px">${escHtml(svc.dls || '')}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function serviceDotClass(svc) {
+  if (!svc.present)  return 'dot-red';
+  if (svc.silence)   return 'dot-orange';
+  const avg = ((svc.audio_l || -100) + (svc.audio_r || -100)) / 2;
+  if (avg < -80)     return 'dot-gray';
+  return 'dot-green';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sélection service
+// ═══════════════════════════════════════════════════════════════
+function selectService(sid) {
+  selectedSid = sid;
+  const svc   = servicesData[sid];
+  if (!svc) return;
+
+  // Mettre à jour les classes active
+  document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
+  event?.currentTarget?.classList.add('active');
+
+  // Afficher le bloc détail
+  document.getElementById('service-detail').style.display = 'block';
+  updateServiceDetail(svc);
+}
+
+function updateServiceDetail(svc) {
+  // Dot
+  const dot = document.getElementById('detail-dot');
+  dot.className = 'dot ' + serviceDotClass(svc);
+
+  document.getElementById('detail-label').textContent = svc.label || '—';
+  document.getElementById('detail-sid').textContent   = svc.sid   || '—';
+  document.getElementById('detail-mode').textContent  = svc.mode  || svc.mode_full || '—';
+
+  // DLS
+  document.getElementById('detail-dls').textContent =
+    svc.dls || '(pas de DLS)';
+
+  // Audio
+  const audioL = svc.audio_l || -100;
+  const audioR = svc.audio_r || -100;
+  document.getElementById('detail-audio-l').textContent = audioL.toFixed(1) + ' dBFS';
+  document.getElementById('detail-audio-r').textContent = audioR.toFixed(1) + ' dBFS';
+
+  const pctL = Math.max(0, Math.min(100, (audioL + 60) / 60 * 100));
+  const pctR = Math.max(0, Math.min(100, (audioR + 60) / 60 * 100));
+  const colL = audioL > -3 ? '#ef4444' : audioL > -12 ? '#f97316' : '#22c55e';
+  const colR = audioR > -3 ? '#ef4444' : audioR > -12 ? '#f97316' : '#22c55e';
+  setBar('detail-bar-l', pctL, colL);
+  setBar('detail-bar-r', pctR, colR);
+
+  // Technique
+  document.getElementById('detail-bitrate').textContent =
+    svc.bitrate ? svc.bitrate + ' kbps' : '—';
+  document.getElementById('detail-prot').textContent =
+    svc.prot_info || '—';
+  document.getElementById('detail-lang').textContent =
+    svc.language || '—';
+  document.getElementById('detail-subch').textContent =
+    svc.subchannel_id != null ? '#' + svc.subchannel_id : '—';
+  document.getElementById('detail-samplerate').textContent =
+    svc.samplerate ? (svc.samplerate / 1000).toFixed(0) + ' kHz' : '—';
+  document.getElementById('detail-pty').textContent =
+    svc.pty || '—';
+
+  // Erreurs
+  document.getElementById('detail-err-aac').textContent  = svc.err_aac   ?? '—';
+  document.getElementById('detail-err-frame').textContent= svc.err_frame ?? '—';
+  document.getElementById('detail-err-rs').textContent   = svc.err_rs    ?? '—';
+}
+
+function setBar(id, pct, color) {
+  const el = document.getElementById(id);
+  el.style.width      = pct + '%';
+  el.style.background = color;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Streaming audio
+// ═══════════════════════════════════════════════════════════════
+function switchStream() {
+  if (!selectedSid) return;
+  const btn = document.getElementById('btn-stream');
+  btn.textContent = '⏳ Connexion…';
+  btn.disabled = true;
+
+  // 1. Dire au backend quel service est actif
+  fetch('/api/service/switch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sid: selectedSid})
+  }).then(r => r.json()).then(() => {
+    // 2. Connecter le player via le proxy Flask
+    const player = document.getElementById('audio-player');
+    player.style.display = 'block';
+    player.src = '/stream.mp3?' + Date.now();
+    player.load();
+    player.play().catch(e => console.log('Play:', e));
+    btn.textContent = '⏹ Stop';
+    btn.disabled = false;
+    btn.onclick = stopStream;
+  }).catch(() => {
+    btn.textContent = '▶ Écouter';
+    btn.disabled = false;
+  });
+}
+
+function stopStream() {
+  const player = document.getElementById('audio-player');
+  player.pause();
+  player.src = '';
+  player.style.display = 'none';
+  const btn = document.getElementById('btn-stream');
+  btn.textContent = '▶ Écouter';
+  btn.onclick = switchStream;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Modal scan
+// ═══════════════════════════════════════════════════════════════
+function openScanModal() {
+  const modal = document.getElementById('scan-modal');
+  modal.style.display = 'flex';
+
+  // Charger les résultats précédents si disponibles
+  fetch('/api/scan/results')
+    .then(r => r.json())
+    .then(results => {
+      if (results.length) {
+        renderScanResults(results);
+        document.getElementById('scan-no-results').style.display = 'none';
+      }
+    });
+}
+
+function closeScanModal() {
+  document.getElementById('scan-modal').style.display = 'none';
+  if (scanEventSource) { scanEventSource.close(); scanEventSource = null; }
+}
+
+function startScan() {
+  document.getElementById('btn-start-scan').style.display = 'none';
+  document.getElementById('btn-stop-scan').style.display  = 'inline-block';
+  document.getElementById('scan-progress-section').style.display = 'block';
+  document.getElementById('scan-results-list').innerHTML  = '';
+  document.getElementById('scan-no-results').style.display = 'none';
+
+  fetch('/api/scan/start', {method: 'POST'})
+    .then(() => {
+      if (scanEventSource) scanEventSource.close();
+      scanEventSource = new EventSource('/api/scan/stream');
+      scanEventSource.onmessage = e => {
+        try { updateScanProgress(JSON.parse(e.data)); } catch(_) {}
+      };
+    });
+}
+
+function stopScan() {
+  fetch('/api/scan/stop', {method: 'POST'});
+  if (scanEventSource) { scanEventSource.close(); scanEventSource = null; }
+  document.getElementById('btn-start-scan').style.display = 'inline-block';
+  document.getElementById('btn-stop-scan').style.display  = 'none';
+}
+
+function updateScanProgress(status) {
+  const pct = status.progress_pct || 0;
+  document.getElementById('scan-progress-bar').style.width = pct + '%';
+  document.getElementById('scan-current-channel').textContent =
+    status.current_channel || (status.running ? '…' : 'Terminé');
+  document.getElementById('scan-progress-text').textContent =
+    `${status.current_index} / ${status.total_channels}`;
+  document.getElementById('scan-found-count').textContent =
+    `${status.results_count} multiplex détecté(s)`;
+
+  if (status.results && status.results.length) {
+    renderScanResults(status.results);
+  }
+
+  if (!status.running && status.current_index > 0) {
+    document.getElementById('btn-start-scan').style.display = 'inline-block';
+    document.getElementById('btn-stop-scan').style.display  = 'none';
+    document.getElementById('scan-current-channel').textContent = 'Terminé';
+  }
+}
+
+function renderScanResults(results) {
+  const list = document.getElementById('scan-results-list');
+  list.innerHTML = '';
+  results.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'scan-channel border border-gray-200 rounded-lg p-3 bg-gray-50';
+    div.onclick   = () => selectChannel(r.channel);
+    div.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">${r.channel}</span>
+          <span class="text-sm font-semibold text-gray-800">${escHtml(r.ensemble_label)}</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-gray-400 font-mono">SNR ${r.snr} dB</span>
+          <span class="text-xs text-gray-400">${r.nb_services} svc</span>
+          <span class="text-xs text-gray-400 font-mono">${r.frequency_mhz} MHz</span>
+        </div>
+      </div>
+      <div class="mt-1.5 flex flex-wrap gap-1">
+        ${(r.services || []).map(s => `<span class="text-xs bg-white border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded">${escHtml(s)}</span>`).join('')}
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function selectChannel(channel) {
+  if (!confirm(`Activer le canal ${channel} et démarrer le monitoring ?`)) return;
+  closeScanModal();
+
+  fetch('/api/scan/select', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({channel})
+  }).then(r => r.json()).then(data => {
+    if (data.status === 'success') {
+      // Reconnecter le SSE stats
+      setTimeout(connectStats, 2000);
+    } else {
+      alert('Erreur : ' + (data.message || 'inconnue'));
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Utils
+// ═══════════════════════════════════════════════════════════════
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════
+connectStats();
+
+// Ouvrir le scan si aucun service n'est encore connu
+fetch('/api/scan/results').then(r => r.json()).then(results => {
+  if (!results.length) {
+    fetch('/api/stats').then(r => r.json()).then(stats => {
+      const nb = stats.rf?.nb_services || 0;
+      if (nb === 0) {
+        setTimeout(openScanModal, 800);
+      }
+    }).catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
