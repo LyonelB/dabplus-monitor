@@ -174,65 +174,55 @@
       <div class="grid grid-cols-2 gap-4">
 
         <!-- Colonne gauche : Audio -->
-        <div class="space-y-3">
+        <div class="space-y-2">
           <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Audio</div>
-
           <!-- DLS -->
           <div>
             <div class="text-xs text-gray-400 mb-0.5">DLS (titre en cours)</div>
             <div class="text-sm font-medium text-gray-800 truncate" id="detail-dls">—</div>
           </div>
-
-          <!-- Slideshow MOT -->
-          <div id="detail-slide-container" style="display:none" class="mt-2">
-            <div class="text-xs text-gray-400 mb-1">Slideshow</div>
-            <img id="detail-slide-img" src="" alt="Slideshow"
-              class="rounded-lg border border-gray-100 w-full object-contain max-h-32 cursor-pointer"
-              onclick="document.getElementById('slide-fullscreen').style.display='flex'">
-          </div>
-
-          <!-- VU Left -->
-          <div>
-            <div class="flex justify-between text-xs text-gray-400 mb-1">
-              <span>Gauche</span>
-              <span class="font-mono" id="detail-audio-l">— dBFS</span>
+          <!-- Layout : image gauche | VU+player droite -->
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start">
+            <div id="detail-slide-container" style="display:none">
+              <img id="detail-slide-img" src="" alt=""
+                style="width:160px;height:120px;object-fit:contain;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer;display:block"
+                onclick="document.getElementById('slide-fullscreen').style.display='flex'">
             </div>
-            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.05s linear"></div>
-            </div>
-          </div>
-
-          <!-- VU Right -->
-          <div>
-            <div class="flex justify-between text-xs text-gray-400 mb-1">
-              <span>Droite</span>
-              <span class="font-mono" id="detail-audio-r">— dBFS</span>
-            </div>
-            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.05s linear"></div>
-            </div>
-          </div>
-
-          <!-- Player audio -->
-          <div class="mt-2">
-            <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-              <button id="play-button" onclick="togglePlay()"
-                class="w-10 h-10 rounded-full border-2 border-gray-300 bg-white hover:border-blue-600 hover:text-blue-600 transition flex items-center justify-center flex-shrink-0">
-                <svg id="play-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              </button>
-              <div class="flex items-center gap-1.5 flex-1">
-                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
+                  <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
+                </div>
+                <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+                  <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.05s linear"></div>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
+                  <span>Droite</span><span id="detail-audio-r">— dBFS</span>
+                </div>
+                <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+                  <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.05s linear"></div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid #f3f4f6">
+                <button id="play-button" onclick="togglePlay()"
+                  style="width:36px;height:36px;border-radius:50%;border:2px solid #d1d5db;background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
+                  <svg id="play-icon" style="width:16px;height:16px" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <svg style="width:14px;height:14px;color:#9ca3af;flex-shrink:0" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
                 </svg>
                 <input type="range" id="volume-slider" min="0" max="100" value="80"
-                  class="w-20 h-1 bg-gray-200 rounded appearance-none cursor-pointer">
-                <span id="volume-value" class="text-xs text-gray-500 w-7">80%</span>
-                <a href="/stream.mp3" target="_blank" class="text-xs text-blue-600 hover:underline shrink-0 ml-1">Externe ↗</a>
+                  style="width:70px;height:4px;cursor:pointer">
+                <span id="volume-value" style="font-size:11px;color:#6b7280;width:28px">80%</span>
+                <a href="/stream.mp3" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;margin-left:4px">Externe ↗</a>
               </div>
+              <audio id="audio-player" preload="none"></audio>
             </div>
-            <audio id="audio-player" preload="none"></audio>
           </div>
         </div>
+
 
         <!-- Colonne droite : Technique -->
         <div class="space-y-3">
