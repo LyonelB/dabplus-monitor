@@ -314,9 +314,10 @@ class DABPlusMonitor:
         gain         = float(data.get('receiver', {}).get('hardware', {}).get('gain', 0))
         services_raw = data.get('services', [])
 
-        # FIC quality : on l'estime à partir des erreurs CRC
-        # 0 erreur = 100%, on sature à 0% si trop d'erreurs
-        fic_quality = max(0.0, 100.0 - min(fic_errors / 10.0, 100.0))
+        # FIC quality : delta d'erreurs CRC entre deux polls (numcrcerrors est cumulatif)
+        prev_errors  = self.rf_metrics.get('fic_errors', 0)
+        delta_errors = max(0, fic_errors - prev_errors) if fic_errors >= prev_errors else 0
+        fic_quality  = max(0.0, 100.0 - min(delta_errors * 2.0, 100.0))
 
         with self.rf_lock:
             self.rf_metrics['snr']            = snr
@@ -377,9 +378,21 @@ class DABPlusMonitor:
                 audio = svc.get('audiolevel', {})
                 raw_l = int(audio.get('left',  0))
                 raw_r = int(audio.get('right', 0))
-                state.audio_l = _raw_to_dbfs(raw_l)
-                state.audio_r = _raw_to_dbfs(raw_r)
+                state.audio_l  = _raw_to_dbfs(raw_l)
+                state.audio_r  = _raw_to_dbfs(raw_r)
                 state.channels = int(svc.get('channels', 2))
+
+                # Metadonnees complementaires
+                state.pty        = svc.get('ptystring', '')
+                state.mode_full  = svc.get('mode', '')
+                state.samplerate = int(svc.get('samplerate', 0))
+                state.url_mp3    = svc.get('url_mp3', f'/mp3/{sid}')
+
+                # Compteurs d'erreurs par service
+                err = svc.get('errorcounters', {})
+                state.err_aac   = int(err.get('aacerrors',   0))
+                state.err_frame = int(err.get('frameerrors', 0))
+                state.err_rs    = int(err.get('rserrors',    0))
 
                 state.present   = True
                 state.last_seen = now
@@ -654,6 +667,14 @@ class _ServiceState:
         self.subchannel_id = ''
         self.prot_info    = ''
         self.audio_srate  = 0
+        self.mode_full    = ''
+        self.samplerate   = 0
+        self.pty          = ''
+        self.url_mp3      = f'/mp3/{sid}'
+        self.err_aac      = 0
+        self.err_frame    = 0
+        self.err_rs       = 0
+        self.channels     = 2
 
         # Surveillance
         self.present         = True
@@ -682,4 +703,12 @@ class _ServiceState:
             'silence':        self.silence_start is not None,
             'silence_alert':  self.silence_alert_sent,
             'lost_alert':     self.lost_alert_sent,
+            'mode_full':      self.mode_full,
+            'samplerate':     self.samplerate,
+            'pty':            self.pty,
+            'url_mp3':        self.url_mp3,
+            'channels':       self.channels,
+            'err_aac':        self.err_aac,
+            'err_frame':      self.err_frame,
+            'err_rs':         self.err_rs,
         }
