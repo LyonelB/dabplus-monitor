@@ -167,9 +167,7 @@
         </div>
         <div class="flex items-center gap-2">
           <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono" id="detail-mode">—</span>
-          <button id="btn-stream" onclick="switchStream()" class="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition-colors font-medium">
-            ▶ Écouter
-          </button>
+
         </div>
       </div>
 
@@ -185,6 +183,14 @@
             <div class="text-sm font-medium text-gray-800 truncate" id="detail-dls">—</div>
           </div>
 
+          <!-- Slideshow MOT -->
+          <div id="detail-slide-container" style="display:none" class="mt-2">
+            <div class="text-xs text-gray-400 mb-1">Slideshow</div>
+            <img id="detail-slide-img" src="" alt="Slideshow"
+              class="rounded-lg border border-gray-100 w-full object-contain max-h-32 cursor-pointer"
+              onclick="document.getElementById('slide-fullscreen').style.display='flex'">
+          </div>
+
           <!-- VU Left -->
           <div>
             <div class="flex justify-between text-xs text-gray-400 mb-1">
@@ -192,7 +198,7 @@
               <span class="font-mono" id="detail-audio-l">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.05s linear"></div>
             </div>
           </div>
 
@@ -203,15 +209,28 @@
               <span class="font-mono" id="detail-audio-r">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.05s linear"></div>
             </div>
           </div>
 
           <!-- Player audio -->
           <div class="mt-2">
-            <audio id="audio-player" controls class="w-full h-8" style="display:none">
-              
-            </audio>
+            <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+              <button id="play-button" onclick="togglePlay()"
+                class="w-10 h-10 rounded-full border-2 border-gray-300 bg-white hover:border-blue-600 hover:text-blue-600 transition flex items-center justify-center flex-shrink-0">
+                <svg id="play-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+              <div class="flex items-center gap-1.5 flex-1">
+                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                </svg>
+                <input type="range" id="volume-slider" min="0" max="100" value="80"
+                  class="w-20 h-1 bg-gray-200 rounded appearance-none cursor-pointer">
+                <span id="volume-value" class="text-xs text-gray-500 w-7">80%</span>
+                <a href="/stream.mp3" target="_blank" class="text-xs text-blue-600 hover:underline shrink-0 ml-1">Externe ↗</a>
+              </div>
+            </div>
+            <audio id="audio-player" preload="none"></audio>
           </div>
         </div>
 
@@ -427,30 +446,56 @@ function setRfField(valId, val, barId, pct, color) {
 // ═══════════════════════════════════════════════════════════════
 function updateServicesGrid(services) {
   const grid = document.getElementById('services-grid');
-  const sids = Object.keys(services);
+  const sids = Object.keys(services).sort((a, b) =>
+    (services[a].label || a).localeCompare(services[b].label || b)
+  );
   if (!sids.length) return;
 
-  grid.innerHTML = '';
-  sids.sort((a, b) =>
-    (services[a].label || a).localeCompare(services[b].label || b)
-  ).forEach(sid => {
-    const svc   = services[sid];
-    const label = svc.label || sid;
-    const dot   = serviceDotClass(svc);
-    const isActive = sid === selectedSid;
+  // Première construction si vide (flag data-built)
+  if (!grid.dataset.built) {
+    grid.dataset.built = '1';
+    grid.innerHTML = '';
+    sids.forEach(sid => {
+      const card = document.createElement('div');
+      card.id        = 'svc-card-' + sid;
+      card.className = 'service-card rounded-lg p-2.5 border border-gray-100 bg-gray-50';
+      card.onclick   = () => selectService(sid);
+      card.innerHTML = `
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="dot dot-gray" id="svc-dot-${sid}"></span>
+          <span class="text-xs font-semibold text-gray-800 truncate" id="svc-label-${sid}"></span>
+        </div>
+        <div class="text-xs text-gray-400 font-mono truncate" id="svc-bitrate-${sid}"></div>
+        <div class="text-xs text-gray-400 truncate mt-0.5" id="svc-dls-${sid}" style="font-size:10px"></div>
+      `;
+      grid.appendChild(card);
+    });
+  }
 
-    const card = document.createElement('div');
-    card.className = `service-card rounded-lg p-2.5 border border-gray-100 bg-gray-50${isActive ? ' active' : ''}`;
-    card.onclick   = () => selectService(sid);
-    card.innerHTML = `
-      <div class="flex items-center gap-1.5 mb-1">
-        <span class="dot ${dot}"></span>
-        <span class="text-xs font-semibold text-gray-800 truncate">${escHtml(label)}</span>
-      </div>
-      <div class="text-xs text-gray-400 font-mono truncate">${svc.bitrate ? svc.bitrate + ' kbps' : '—'}</div>
-      <div class="text-xs text-gray-400 truncate mt-0.5" style="font-size:10px">${escHtml(svc.dls || '')}</div>
-    `;
-    grid.appendChild(card);
+  // Mise à jour des données sans recréer le DOM
+  sids.forEach(sid => {
+    const svc    = services[sid];
+    const dot    = document.getElementById('svc-dot-' + sid);
+    const label  = document.getElementById('svc-label-' + sid);
+    const bitrate= document.getElementById('svc-bitrate-' + sid);
+    const dls    = document.getElementById('svc-dls-' + sid);
+    const card   = document.getElementById('svc-card-' + sid);
+    if (!dot) return;
+
+    // Dot couleur
+    dot.className = 'dot ' + serviceDotClass(svc);
+
+    // Textes — ne mettre à jour que si changé
+    const newLabel   = escHtml(svc.label || sid);
+    const newBitrate = svc.bitrate ? svc.bitrate + ' kbps' : '—';
+    const newDls     = escHtml(svc.dls || '');
+    if (label.innerHTML  !== newLabel)   label.innerHTML   = newLabel;
+    if (bitrate.textContent !== newBitrate) bitrate.textContent = newBitrate;
+    if (dls.textContent  !== newDls)     dls.textContent   = newDls;
+
+    // Classe active
+    if (sid === selectedSid) card.classList.add('active');
+    else card.classList.remove('active');
   });
 }
 
@@ -519,6 +564,20 @@ function updateServiceDetail(svc) {
   document.getElementById('detail-pty').textContent =
     svc.pty || '—';
 
+  // Slideshow MOT
+  const slideContainer = document.getElementById('detail-slide-container');
+  const slideImg       = document.getElementById('detail-slide-img');
+  const slideFull      = document.getElementById('slide-fullscreen-img');
+  if (svc.mot_time && svc.mot_time > 0) {
+    const sidDec = parseInt(svc.sid, 16);
+  const slideUrl = '/slide/' + sidDec + '?cachebreak=' + svc.mot_time;
+    slideImg.src   = slideUrl;
+    slideFull.src  = slideUrl;
+    slideContainer.style.display = 'block';
+  } else {
+    slideContainer.style.display = 'none';
+  }
+
   // Erreurs
   document.getElementById('detail-err-aac').textContent  = svc.err_aac   ?? '—';
   document.getElementById('detail-err-frame').textContent= svc.err_frame ?? '—';
@@ -534,42 +593,67 @@ function setBar(id, pct, color) {
 // ═══════════════════════════════════════════════════════════════
 // Streaming audio
 // ═══════════════════════════════════════════════════════════════
-function switchStream() {
-  if (!selectedSid) return;
-  const btn = document.getElementById('btn-stream');
-  btn.textContent = '⏳ Connexion…';
+let isPlaying = false;
+
+function togglePlay() {
+  if (!isPlaying) {
+    if (!selectedSid) {
+      alert('Sélectionne d\'abord un service dans la grille.');
+      return;
+    }
+    startPlay();
+  } else {
+    stopPlay();
+  }
+}
+
+function startPlay() {
+  const btn = document.getElementById('play-button');
   btn.disabled = true;
 
-  // 1. Dire au backend quel service est actif
   fetch('/api/service/switch', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({sid: selectedSid})
   }).then(r => r.json()).then(() => {
-    // 2. Connecter le player via le proxy Flask
     const player = document.getElementById('audio-player');
-    player.style.display = 'block';
     player.src = '/stream.mp3?' + Date.now();
-    player.load();
+    player.volume = document.getElementById('volume-slider').value / 100;
     player.play().catch(e => console.log('Play:', e));
-    btn.textContent = '⏹ Stop';
+    isPlaying = true;
+    document.getElementById('play-icon').innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
+    btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
     btn.disabled = false;
-    btn.onclick = stopStream;
-  }).catch(() => {
-    btn.textContent = '▶ Écouter';
-    btn.disabled = false;
-  });
+    // Mettre à jour le bouton Écouter dans le détail
+    const btnStream = document.getElementById('btn-stream');
+    if (btnStream) { btnStream.textContent = '⏹ Stop'; btnStream.onclick = stopPlay; }
+  }).catch(() => { btn.disabled = false; });
 }
 
-function stopStream() {
+function stopPlay() {
   const player = document.getElementById('audio-player');
   player.pause();
   player.src = '';
-  player.style.display = 'none';
-  const btn = document.getElementById('btn-stream');
-  btn.textContent = '▶ Écouter';
-  btn.onclick = switchStream;
+  isPlaying = false;
+  const btn = document.getElementById('play-button');
+  document.getElementById('play-icon').innerHTML = '<path d="M8 5v14l11-7z"/>';
+  btn.classList.remove('border-blue-600', 'text-blue-600', 'bg-blue-50');
+  const btnStream = document.getElementById('btn-stream');
+  if (btnStream) { btnStream.textContent = '▶ Écouter'; btnStream.onclick = togglePlay; }
 }
+
+// Volume
+document.addEventListener('DOMContentLoaded', () => {
+  const vol = document.getElementById('volume-slider');
+  const volVal = document.getElementById('volume-value');
+  if (vol) {
+    vol.addEventListener('input', e => {
+      const v = e.target.value;
+      document.getElementById('audio-player').volume = v / 100;
+      if (volVal) volVal.textContent = v + '%';
+    });
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // Modal scan
@@ -708,5 +792,13 @@ fetch('/api/scan/results').then(r => r.json()).then(results => {
   }
 });
 </script>
+
+<!-- Modale plein écran slideshow -->
+<div id="slide-fullscreen" onclick="this.style.display='none'"
+  class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center cursor-pointer"
+  style="display:none">
+  <img id="slide-fullscreen-img" src="" alt="Slideshow" class="max-w-full max-h-full rounded-lg shadow-2xl">
+</div>
+
 </body>
 </html>

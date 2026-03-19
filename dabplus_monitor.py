@@ -392,6 +392,10 @@ class DABPlusMonitor:
                 state.err_frame = int(err.get('frameerrors', 0))
                 state.err_rs    = int(err.get('rserrors',    0))
 
+                # Slideshow MOT
+                mot = svc.get('mot', {})
+                state.mot_time = int(mot.get('time', 0))
+
                 state.present   = True
                 state.last_seen = now
 
@@ -675,6 +679,7 @@ class _ServiceState:
         self.err_frame    = 0
         self.err_rs       = 0
         self.channels     = 2
+        self.mot_time     = 0
 
         # Surveillance
         self.present         = True
@@ -711,4 +716,5 @@ class _ServiceState:
             'err_aac':        self.err_aac,
             'err_frame':      self.err_frame,
             'err_rs':         self.err_rs,
+            'mot_time':       self.mot_time,
         }

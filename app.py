@@ -52,7 +52,7 @@ def generate_stats_sse():
             if monitor:
                 data = monitor.get_stats()
                 yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(0.5)   # 2 Hz — suffisant pour DAB+
+            time.sleep(0.1)   # 10 Hz — suffisant pour DAB+
         except GeneratorExit:
             break
         except Exception as e:
@@ -387,6 +387,27 @@ def proxy_stream():
 # ─────────────────────────────────────────────────────────────────────────────
 # Démarrage
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.route('/slide/<sid>')
+@limiter.exempt
+def proxy_slide(sid):
+    """Proxifie l'image slideshow depuis welle-cli."""
+    cachebreak = request.args.get('cachebreak', '0')
+    try:
+        r = requests.get(
+            f'http://localhost:7979/slide/{sid}?cachebreak={cachebreak}',
+            timeout=3
+        )
+        if r.status_code == 200:
+            return app.response_class(
+                r.content,
+                mimetype=r.headers.get('Content-Type', 'image/jpeg'),
+                headers={'Cache-Control': 'max-age=10'}
+            )
+    except Exception as e:
+        logger.debug(f"Slide {sid} : {e}")
+    return '', 404
 
 try:
     monitor = DABPlusMonitor('config.json')
