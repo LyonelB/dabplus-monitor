@@ -73,10 +73,11 @@ class DABPlusMonitor:
 
         # ── Métriques RF ────────────────────────────────────────────────
         self.rf_metrics = {
-            'snr':         0.0,
-            'fic_quality': 0.0,
-            'fft_offset':  0,
-            'freq_corr':   0,
+            'snr':            0.0,
+            'fic_quality':    0.0,
+            'fic_errors':     0,
+            'freq_corr':      0.0,
+            'gain':           0.0,
             'ensemble_label': '',
             'ensemble_id':    '',
             'nb_services':    0,
@@ -262,111 +263,145 @@ class DABPlusMonitor:
 
     def _parse_mux_json(self, data: dict):
         """
-        Parse le JSON retourné par welle-cli.
+        Parse le JSON retourné par welle-cli (structure réelle v2.4).
 
-        Structure attendue (welle.io) :
+        Structure réelle :
         {
-          "channel": "9A",
-          "snr": 15.2,
-          "fic_quality": 100,
+          "demodulator": {
+            "snr": 19.0,
+            "frequencycorrection": -88.0,
+            "fic": { "numcrcerrors": 1267 }
+          },
+          "ensemble": {
+            "id": "0xf030",
+            "label": { "label": "LA ROCHE SUR YON", "shortlabel": "LRSY" }
+          },
+          "receiver": {
+            "hardware": { "gain": 29.7, "name": "RTLSDRBlog, Blog V4" }
+          },
           "services": [
             {
-              "sid": "0x1234",
-              "label": "Graffiti Radio",
-              "pty": "Pop Music",
-              "language": "French",
-              "dls": "Artiste - Titre",
-              "dls_time": "2026-03-18T...",
-              "audio_level_left": -12.5,
-              "audio_level_right": -12.3,
-              "bitrate": 80,
-              "mode": "DAB+",
-              "subchannel_id": 2,
-              "prot_info": "EEP-3A",
-              "audio_srate": 48000,
-              "audio_bitrate": 80
-            },
-            ...
+              "sid": "0xfa41",
+              "label": { "label": "GRAFFITI", "shortlabel": "GRAFFITI" },
+              "dls": { "label": "Artiste - Titre", "lastchange": 0 },
+              "audiolevel": { "left": 31325, "right": 26379, "time": 1234 },
+              "channels": 2,
+              "components": [
+                {
+                  "ascty": "DAB+",
+                  "primary": true,
+                  "subchannel": {
+                    "bitrate": 88,
+                    "subchid": 0,
+                    "protection": "EEP 3-A",
+                    "languagestring": "French"
+                  }
+                }
+              ]
+            }
           ]
         }
         """
-        # ── Métriques RF globales ─────────────────────────────────────
-        with self.rf_lock:
-            self.rf_metrics['snr']            = float(data.get('snr', 0))
-            self.rf_metrics['fic_quality']    = float(data.get('fic_quality', 0))
-            self.rf_metrics['fft_offset']     = int(data.get('fft', {}).get('fft_correction', 0))
-            self.rf_metrics['freq_corr']      = float(data.get('frequency_correction_coarse', 0))
-            self.rf_metrics['ensemble_label'] = data.get('label', '')
-            self.rf_metrics['ensemble_id']    = data.get('eid', '')
-            self.rf_metrics['nb_services']    = len(data.get('services', []))
 
-        # ── Mise à jour stats Flask ───────────────────────────────────
+        # ── Métriques RF globales ─────────────────────────────────────
+        demod        = data.get('demodulator', {})
+        ens          = data.get('ensemble', {})
+        ens_label    = ens.get('label', {}).get('label', '')
+        ens_id       = ens.get('id', '')
+        snr          = float(demod.get('snr', 0))
+        freq_corr    = float(demod.get('frequencycorrection', 0))
+        fic_errors   = int(demod.get('fic', {}).get('numcrcerrors', 0))
+        gain         = float(data.get('receiver', {}).get('hardware', {}).get('gain', 0))
+        services_raw = data.get('services', [])
+
+        # FIC quality : on l'estime à partir des erreurs CRC
+        # 0 erreur = 100%, on sature à 0% si trop d'erreurs
+        fic_quality = max(0.0, 100.0 - min(fic_errors / 10.0, 100.0))
+
+        with self.rf_lock:
+            self.rf_metrics['snr']            = snr
+            self.rf_metrics['fic_quality']    = fic_quality
+            self.rf_metrics['fic_errors']     = fic_errors
+            self.rf_metrics['freq_corr']      = freq_corr
+            self.rf_metrics['gain']           = gain
+            self.rf_metrics['ensemble_label'] = ens_label
+            self.rf_metrics['ensemble_id']    = ens_id
+            self.rf_metrics['nb_services']    = len(services_raw)
+
         with self.stats_lock:
-            self.stats['ensemble_label'] = data.get('label', '')
-            self.stats['ensemble_id']    = data.get('eid', '')
+            self.stats['ensemble_label'] = ens_label
+            self.stats['ensemble_id']    = ens_id
 
         # ── État de l'ensemble ────────────────────────────────────────
-        fic_ok = self.rf_metrics['fic_quality'] >= self.mon_cfg.get('fic_quality_threshold', 80)
-        snr_ok = self.rf_metrics['snr']         >= self.mon_cfg.get('snr_threshold', 5.0)
-        self.ensemble_ok = fic_ok and snr_ok
+        snr_ok = snr >= float(self.mon_cfg.get('snr_threshold', 5.0))
+        fic_ok = fic_quality >= float(self.mon_cfg.get('fic_quality_threshold', 80))
+        self.ensemble_ok = snr_ok and fic_ok
 
         # ── Services ──────────────────────────────────────────────────
-        services_raw = data.get('services', [])
         now = time.time()
 
         with self.services_lock:
-            # Marquer les SIDs présents
             current_sids = set()
 
             for svc in services_raw:
-                sid   = str(svc.get('sid', ''))
-                label = svc.get('label', sid)
-
+                sid = str(svc.get('sid', ''))
                 if not sid:
                     continue
 
+                label = svc.get('label', {}).get('label', sid).strip()
                 current_sids.add(sid)
 
-                # Créer l'état si nouveau service
                 if sid not in self.services:
                     self.services[sid] = _ServiceState(sid, label)
                     logger.info(f"Nouveau service découvert : {label} ({sid})")
 
-                state = self.services[sid]
-                state.label    = label
-                state.pty      = svc.get('pty', '')
-                state.language = svc.get('language', '')
-                state.dls      = svc.get('dls', '')
-                state.dls_time = svc.get('dls_time', '')
-                state.bitrate  = int(svc.get('bitrate', 0))
-                state.mode     = svc.get('mode', 'DAB+')
-                state.audio_l  = float(svc.get('audio_level_left',  -100))
-                state.audio_r  = float(svc.get('audio_level_right', -100))
-                state.subchannel_id = svc.get('subchannel_id', '')
-                state.prot_info     = svc.get('prot_info', '')
-                state.audio_srate   = svc.get('audio_srate', 0)
-                state.present       = True
-                state.last_seen     = now
+                state       = self.services[sid]
+                state.label = label or sid
+                state.dls   = svc.get('dls', {}).get('label', '').strip()
+
+                # Composant primaire
+                components = svc.get('components', [])
+                primary    = next((c for c in components if c.get('primary')), None)
+                if primary is None and components:
+                    primary = components[0]
+
+                if primary:
+                    sub = primary.get('subchannel', {})
+                    state.mode        = primary.get('ascty', 'DAB+')
+                    state.bitrate     = int(sub.get('bitrate', 0))
+                    state.prot_info   = sub.get('protection', '')
+                    state.language    = sub.get('languagestring', '')
+                    state.subchannel_id = int(sub.get('subchid', 0))
+
+                # Audio levels : valeurs brutes 0-32768 → dBFS
+                audio = svc.get('audiolevel', {})
+                raw_l = int(audio.get('left',  0))
+                raw_r = int(audio.get('right', 0))
+                state.audio_l = _raw_to_dbfs(raw_l)
+                state.audio_r = _raw_to_dbfs(raw_r)
+                state.channels = int(svc.get('channels', 2))
+
+                state.present   = True
+                state.last_seen = now
 
                 # Détection silence
                 threshold = float(self.mon_cfg.get('audio_silence_threshold', -60.0))
                 audio_avg = (state.audio_l + state.audio_r) / 2.0
-                if audio_avg < threshold:
+                if audio_avg <= threshold:
                     if state.silence_start is None:
                         state.silence_start = now
                 else:
-                    state.silence_start = None
-                    if state.silence_alert_sent:
+                    if state.silence_start is not None:
+                        state.silence_start      = None
                         state.silence_alert_sent = False
                         logger.info(f"Audio rétabli : {label}")
 
-            # Services qui n'apparaissent plus dans le JSON
+            # Services absents
             for sid, state in self.services.items():
-                if sid not in current_sids:
-                    if state.present:
-                        state.present    = False
-                        state.lost_start = now
-                        logger.warning(f"Service absent du bouquet : {state.label} ({sid})")
+                if sid not in current_sids and state.present:
+                    state.present    = False
+                    state.lost_start = now
+                    logger.warning(f"Service absent du bouquet : {state.label} ({sid})")
 
     # ═══════════════════════════════════════════════════════════════════════
     # Watchdog alertes
@@ -585,6 +620,17 @@ class DABPlusMonitor:
 
     def get_welle_url(self) -> str:
         return self.welle_url
+
+
+def _raw_to_dbfs(raw: int) -> float:
+    """
+    Convertit un niveau audio brut welle-cli (0-32768) en dBFS.
+    32768 = 0 dBFS (pleine échelle 16 bits)
+    """
+    if raw <= 0:
+        return -100.0
+    import math
+    return round(20.0 * math.log10(raw / 32768.0), 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
