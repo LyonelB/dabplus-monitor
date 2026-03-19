@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+config.json
+*.pem
+*.log
+logs/
+dabplus_monitor.db
+.env
