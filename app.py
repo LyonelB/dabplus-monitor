@@ -39,7 +39,7 @@ limiter = Limiter(
 auth = Auth()
 
 monitor    = None
-scanner    = None
+scanner    = DABScanner()  # charge scan_results.json si disponible
 stats_cache = {'data': None, 'timestamp': 0}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def generate_stats_sse():
             if monitor:
                 data = monitor.get_stats()
                 yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(0.1)   # 10 Hz — suffisant pour DAB+
+            time.sleep(0.5)   # 2 Hz — suffisant pour DAB+
         except GeneratorExit:
             break
         except Exception as e:
@@ -213,6 +213,7 @@ def generate_scan_sse():
                 break
 
 @app.route('/api/scan/start', methods=['POST'])
+@csrf.exempt
 @auth.login_required
 def scan_start():
     global monitor, scanner
@@ -234,6 +235,7 @@ def scan_start():
     return jsonify({'status': 'success', 'message': 'Scan démarré'})
 
 @app.route('/api/scan/stop', methods=['POST'])
+@csrf.exempt
 @auth.login_required
 def scan_stop():
     if scanner:
@@ -262,6 +264,7 @@ def scan_stream():
     )
 
 @app.route('/api/scan/select', methods=['POST'])
+@csrf.exempt
 @auth.login_required
 def scan_select():
     """Sélectionne un canal après le scan et démarre le monitoring."""
@@ -308,6 +311,7 @@ def scan_results():
 
 
 @app.route('/api/restart', methods=['POST'])
+@csrf.exempt
 @auth.login_required
 def restart_monitor():
     global monitor
@@ -333,6 +337,7 @@ def get_config_full():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/config/save', methods=['POST'])
+@csrf.exempt
 @auth.login_required
 def save_config():
     try:
@@ -366,22 +371,31 @@ def save_config():
 @app.route('/stream.mp3')
 @limiter.exempt
 def proxy_stream():
+    """Proxy vers welle-cli /mp3/<SID> pour le service actif."""
     sid = monitor.active_sid if monitor else ''
     if not sid:
         return '', 503
+
+    welle_url = f"http://localhost:7979/mp3/{sid}"
+
     def generate():
         try:
-            with requests.get(f'http://localhost:7979/mp3/{sid}', stream=True, timeout=5) as r:
+            with requests.get(welle_url, stream=True, timeout=5) as r:
                 r.raise_for_status()
                 for chunk in r.iter_content(chunk_size=4096):
                     if chunk:
                         yield chunk
         except Exception as e:
             logger.error(f"Erreur proxy stream : {e}")
+
     return app.response_class(
         generate(),
         mimetype='audio/mpeg',
-        headers={'Cache-Control': 'no-cache, no-store', 'Access-Control-Allow-Origin': '*'}
+        headers={
+            'Cache-Control': 'no-cache, no-store',
+            'Access-Control-Allow-Origin': '*',
+            'X-Accel-Buffering': 'no',
+        }
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -389,21 +403,55 @@ def proxy_stream():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@app.route('/api/config/export')
+@auth.login_required
+def export_config():
+    """Exporte la config JSON."""
+    try:
+        with open('config.json', 'r') as f:
+            cfg = json.load(f)
+        if 'email' in cfg and 'sender_password' in cfg['email']:
+            cfg['email']['sender_password'] = '********'
+        from flask import Response
+        return Response(
+            json.dumps(cfg, indent=2, ensure_ascii=False),
+            mimetype='application/json',
+            headers={'Content-Disposition': 'attachment; filename=dabplus-monitor-config.json'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/test', methods=['POST'])
+@csrf.exempt
+@auth.login_required
+def test_email():
+    """Envoie un email de test."""
+    try:
+        if monitor and hasattr(monitor, 'email_alert'):
+            monitor.email_alert.send_alert(
+                alert_type="Test email DAB+ Monitor",
+                details="Ceci est un email de test envoyé depuis la page de configuration.",
+                skip_cooldown=True
+            )
+            return jsonify({'status': 'success'})
+        return jsonify({'status': 'error', 'message': 'Monitor non initialisé'}), 503
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/slide/<sid>')
 @limiter.exempt
+@csrf.exempt
 def proxy_slide(sid):
-    """Proxifie l'image slideshow depuis welle-cli."""
-    cachebreak = request.args.get('cachebreak', '0')
+    """Proxifie l'image slideshow depuis welle-cli — sans auth."""
     try:
-        r = requests.get(
-            f'http://localhost:7979/slide/{sid}?cachebreak={cachebreak}',
-            timeout=3
-        )
+        r = requests.get(f'http://localhost:7979/slide/{sid}', timeout=3)
         if r.status_code == 200:
             return app.response_class(
                 r.content,
                 mimetype=r.headers.get('Content-Type', 'image/jpeg'),
-                headers={'Cache-Control': 'max-age=10'}
+                headers={'Cache-Control': 'max-age=30'}
             )
     except Exception as e:
         logger.debug(f"Slide {sid} : {e}")

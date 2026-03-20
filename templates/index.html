@@ -171,58 +171,68 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div style="display:grid;grid-template-columns:1fr 350px 1fr;gap:16px">
 
         <!-- Colonne gauche : Audio -->
         <div class="space-y-2">
           <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Audio</div>
-          <!-- DLS -->
           <div>
             <div class="text-xs text-gray-400 mb-0.5">DLS (titre en cours)</div>
             <div class="text-sm font-medium text-gray-800 truncate" id="detail-dls">—</div>
           </div>
-          <!-- Layout : image gauche | VU+player droite -->
-          <div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start">
-            <div id="detail-slide-container" style="display:none">
-              <img id="detail-slide-img" src="" alt=""
-                style="width:160px;height:120px;object-fit:contain;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer;display:block"
-                onclick="document.getElementById('slide-fullscreen').style.display='flex'">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
+              <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <div>
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-                  <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
-                </div>
-                <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-                  <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.05s linear"></div>
-                </div>
-              </div>
-              <div>
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-                  <span>Droite</span><span id="detail-audio-r">— dBFS</span>
-                </div>
-                <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-                  <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.05s linear"></div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid #f3f4f6">
-                <button id="play-button" onclick="togglePlay()"
-                  style="width:36px;height:36px;border-radius:50%;border:2px solid #d1d5db;background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
-                  <svg id="play-icon" style="width:16px;height:16px" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                </button>
-                <svg style="width:14px;height:14px;color:#9ca3af;flex-shrink:0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                </svg>
-                <input type="range" id="volume-slider" min="0" max="100" value="80"
-                  style="width:70px;height:4px;cursor:pointer">
-                <span id="volume-value" style="font-size:11px;color:#6b7280;width:28px">80%</span>
-                <a href="/stream.mp3" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;margin-left:4px">Externe ↗</a>
-              </div>
-              <audio id="audio-player" preload="none"></audio>
+            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.9s ease-in-out"></div>
             </div>
           </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
+              <span>Droite</span><span id="detail-audio-r">— dBFS</span>
+            </div>
+            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.9s ease-in-out"></div>
+            </div>
+          </div>
+          <!-- Niveaux captés (welle-cli) -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+            <div style="background:#f9fafb;border-radius:6px;padding:4px 8px;text-align:center">
+              <div style="color:#9ca3af">L capté</div>
+              <div style="font-family:monospace;font-weight:600" id="detail-welle-l">—</div>
+            </div>
+            <div style="background:#f9fafb;border-radius:6px;padding:4px 8px;text-align:center">
+              <div style="color:#9ca3af">R capté</div>
+              <div style="font-family:monospace;font-weight:600" id="detail-welle-r">—</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid #f3f4f6">
+            <button id="play-button" onclick="togglePlay()"
+              style="width:36px;height:36px;border-radius:50%;border:2px solid #d1d5db;background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
+              <svg id="play-icon" style="width:16px;height:16px" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <svg style="width:14px;height:14px;color:#9ca3af;flex-shrink:0" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+            </svg>
+            <input type="range" id="volume-slider" min="0" max="100" value="80" style="width:70px;height:4px;cursor:pointer">
+            <span id="volume-value" style="font-size:11px;color:#6b7280;width:28px">80%</span>
+            <a href="/stream.mp3" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;margin-left:4px">Externe ↗</a>
+          </div>
+          <audio id="audio-player" preload="none"></audio>
         </div>
 
+        <!-- Colonne centrale : Image -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Image</div>
+          <div style="width:350px;height:250px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <img id="detail-slide-img" src="" alt=""
+              style="width:320px;height:240px;object-fit:contain;cursor:pointer;display:block;opacity:0"
+              onclick="document.getElementById('slide-fullscreen').style.display='flex'">
+            <span id="slide-placeholder" style="font-size:11px;color:#d1d5db">Pas d'image</span>
+          </div>
+        </div>
 
         <!-- Colonne droite : Technique -->
         <div class="space-y-3">
@@ -254,6 +264,7 @@
               <div class="font-mono font-semibold text-gray-800 truncate" id="detail-pty">—</div>
             </div>
           </div>
+
 
           <!-- Compteurs d'erreurs -->
           <div class="mt-2 pt-2 border-t border-gray-100">
@@ -528,17 +539,22 @@ function updateServiceDetail(svc) {
     svc.dls || '(pas de DLS)';
 
   // Audio
-  const audioL = svc.audio_l || -100;
-  const audioR = svc.audio_r || -100;
-  document.getElementById('detail-audio-l').textContent = audioL.toFixed(1) + ' dBFS';
-  document.getElementById('detail-audio-r').textContent = audioR.toFixed(1) + ' dBFS';
+  // VU-mètre : vu_l/vu_r depuis ffmpeg astats (si dispo), sinon audio_l/audio_r welle-cli
+  const vuL = (svc.vu_l != null && svc.vu_l > -98) ? svc.vu_l : (svc.audio_l || -100);
+  const vuR = (svc.vu_r != null && svc.vu_r > -98) ? svc.vu_r : (svc.audio_r || -100);
+  document.getElementById('detail-audio-l').textContent = vuL.toFixed(1) + ' dBFS';
+  document.getElementById('detail-audio-r').textContent = vuR.toFixed(1) + ' dBFS';
 
-  const pctL = Math.max(0, Math.min(100, (audioL + 60) / 60 * 100));
-  const pctR = Math.max(0, Math.min(100, (audioR + 60) / 60 * 100));
-  const colL = audioL > -3 ? '#ef4444' : audioL > -12 ? '#f97316' : '#22c55e';
-  const colR = audioR > -3 ? '#ef4444' : audioR > -12 ? '#f97316' : '#22c55e';
-  setBar('detail-bar-l', pctL, colL);
-  setBar('detail-bar-r', pctR, colR);
+  const pctL = Math.max(0, Math.min(100, (vuL + 60) / 60 * 100));
+  const pctR = Math.max(0, Math.min(100, (vuR + 60) / 60 * 100));
+  setBar('detail-bar-l', pctL, '#22c55e');
+  setBar('detail-bar-r', pctR, '#22c55e');
+
+  // Valeurs welle-cli dans Technique
+  const wl = document.getElementById('detail-welle-l');
+  const wr = document.getElementById('detail-welle-r');
+  if (wl) wl.textContent = (svc.audio_l || -100).toFixed(1) + ' dBFS';
+  if (wr) wr.textContent = (svc.audio_r || -100).toFixed(1) + ' dBFS';
 
   // Technique
   document.getElementById('detail-bitrate').textContent =
@@ -553,27 +569,41 @@ function updateServiceDetail(svc) {
     svc.samplerate ? (svc.samplerate / 1000).toFixed(0) + ' kHz' : '—';
   document.getElementById('detail-pty').textContent =
     svc.pty || '—';
-
   // Slideshow MOT
-  const slideContainer = document.getElementById('detail-slide-container');
-  const slideImg       = document.getElementById('detail-slide-img');
-  const slideFull      = document.getElementById('slide-fullscreen-img');
+  const slideImg         = document.getElementById('detail-slide-img');
+  const slidePlaceholder = document.getElementById('slide-placeholder');
+  const slideFull        = document.getElementById('slide-fullscreen-img');
   if (svc.mot_time && svc.mot_time > 0) {
-    const sidDec = parseInt(svc.sid, 16);
-  const slideUrl = '/slide/' + sidDec + '?cachebreak=' + svc.mot_time;
-    slideImg.src   = slideUrl;
-    slideFull.src  = slideUrl;
-    slideContainer.style.display = 'block';
+    const sidDec   = parseInt(svc.sid, 16);
+    const slideUrl = '/slide/' + sidDec + '?cachebreak=' + svc.mot_time;
+    if (slideImg.dataset.url !== slideUrl) {
+      slideImg.dataset.url = slideUrl;
+      const imgSrc = slideUrl + '&t=' + Date.now();
+      slideImg.onload = () => {
+        slideImg.style.opacity = '1';
+        if (slidePlaceholder) slidePlaceholder.style.display = 'none';
+        if (slideFull) slideFull.src = imgSrc;
+      };
+      slideImg.onerror = () => {
+        slideImg.style.opacity = '0';
+        slideImg.dataset.url = '';
+        if (slidePlaceholder) slidePlaceholder.style.display = 'block';
+      };
+      slideImg.src = imgSrc;
+    }
   } else {
-    slideContainer.style.display = 'none';
+    slideImg.style.opacity = '0';
+    slideImg.dataset.url = '';
+    if (slidePlaceholder) slidePlaceholder.style.display = 'block';
   }
+    
 
   // Erreurs
   document.getElementById('detail-err-aac').textContent  = svc.err_aac   ?? '—';
   document.getElementById('detail-err-frame').textContent= svc.err_frame ?? '—';
   document.getElementById('detail-err-rs').textContent   = svc.err_rs    ?? '—';
-}
 
+}
 function setBar(id, pct, color) {
   const el = document.getElementById(id);
   el.style.width      = pct + '%';

@@ -142,6 +142,10 @@ class DABPlusMonitor:
         watch_t = threading.Thread(target=self._watchdog_loop, daemon=True)
         watch_t.start()
 
+        # Thread VU-mètre ffmpeg
+        vu_t = threading.Thread(target=self._vu_meter_loop, daemon=True)
+        vu_t.start()
+
         # Thread streaming si activé
         if self.stream_cfg.get('enabled') and self.active_sid:
             stream_t = threading.Thread(target=self._start_streaming, daemon=True)
@@ -353,6 +357,14 @@ class DABPlusMonitor:
                 if sid not in self.services:
                     self.services[sid] = _ServiceState(sid, label)
                     logger.info(f"Nouveau service découvert : {label} ({sid})")
+                    # Démarrer le VU-mètre sur le premier vrai service si aucun actif
+                    if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
+                        self.active_sid = sid
+                        logger.info(f"Service VU-mètre par défaut : {label}")
+                    # Démarrer le VU-mètre sur le premier vrai service si aucun actif
+                    if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
+                        self.active_sid = sid
+                        logger.info(f"Service VU-mètre par défaut : {label}")
 
                 state       = self.services[sid]
                 state.label = label or sid
@@ -548,6 +560,64 @@ class DABPlusMonitor:
     # Streaming Icecast
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _vu_meter_loop(self):
+        """
+        Analyse audio du flux MP3 actif via ffmpeg ebur128.
+        Extrait les niveaux L/R (FTPK) toutes les 100ms.
+        Format: FTPK: -3.3 -0.5 dBFS
+        """
+        import re
+        self._vu_process = None
+        pattern = re.compile(r'FTPK:\s*([-\d.]+)\s+([-\d.]+)\s+dBFS')
+
+        while self.running:
+            sid = self.active_sid
+            if not sid:
+                time.sleep(1)
+                continue
+
+            source = f"http://localhost:{self.welle_port}/mp3/{sid}"
+            cmd = [
+                "ffmpeg", "-reconnect", "1",
+                "-i", source,
+                "-af", "ebur128=peak=true",
+                "-f", "null", "-"
+            ]
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    bufsize=1
+                )
+                self._vu_process = proc
+
+                for raw in proc.stderr:
+                    if not self.running or self.active_sid != sid:
+                        break
+                    try:
+                        line = raw.decode("utf-8", errors="ignore")
+                        m = pattern.search(line)
+                        if m:
+                            l_val = float(m.group(1))
+                            r_val = float(m.group(2))
+                            with self.services_lock:
+                                if sid in self.services:
+                                    self.services[sid].vu_l = l_val
+                                    self.services[sid].vu_r = r_val
+                    except Exception:
+                        pass
+
+                proc.wait()
+
+            except Exception as e:
+                logger.debug(f"VU-mètre ffmpeg : {e}")
+
+            if self.running:
+                time.sleep(2)
+
+
     def _start_streaming(self):
         """
         Streame le service actif vers Icecast via ffmpeg.
@@ -587,14 +657,21 @@ class DABPlusMonitor:
         logger.info(f"Switch service → {sid}")
         self.active_sid = sid
 
-        # Tuer ffmpeg actuel
+        # Tuer ffmpeg streaming actuel
         if self.stream_process:
             try:
                 self.stream_process.kill()
             except Exception:
                 pass
 
-        # Relancer avec le nouveau SID
+        # Tuer ffmpeg VU actuel
+        if hasattr(self, '_vu_process') and self._vu_process:
+            try:
+                self._vu_process.kill()
+            except Exception:
+                pass
+
+        # Relancer streaming
         if self.stream_cfg.get('enabled') and sid:
             t = threading.Thread(target=self._start_streaming, daemon=True)
             t.start()
@@ -680,6 +757,12 @@ class _ServiceState:
         self.err_rs       = 0
         self.channels     = 2
         self.mot_time     = 0
+        self.vu_l         = -100.0
+        self.vu_r         = -100.0
+        self.vu_l         = -100.0
+        self.vu_r         = -100.0
+        self.vu_l         = -100.0
+        self.vu_r         = -100.0
 
         # Surveillance
         self.present         = True
@@ -717,4 +800,6 @@ class _ServiceState:
             'err_frame':      self.err_frame,
             'err_rs':         self.err_rs,
             'mot_time':       self.mot_time,
+            'vu_l':           round(self.vu_l, 1),
+            'vu_r':           round(self.vu_r, 1),
         }
