@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAB+ Monitor — À propos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .sidebar-link { display:flex; align-items:center; gap:10px; padding:10px 16px; border-radius:8px; color:#64748b; font-size:0.875rem; font-weight:500; transition:all 0.15s; text-decoration:none; }
+    .sidebar-link:hover, .sidebar-link.active { background:#eef2ff; color:#6366f1; }
+    .sidebar-link svg { width:18px; height:18px; flex-shrink:0; }
+    .section { background:white; border:1px solid #f1f5f9; border-radius:12px; padding:24px; margin-bottom:20px; }
+    .section-title { font-size:1rem; font-weight:700; color:#1e293b; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+    .section-title .icon { width:32px; height:32px; border-radius:8px; background:#eef2ff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem; }
+    .section p { font-size:0.875rem; color:#475569; line-height:1.7; margin-bottom:10px; }
+    .section p:last-child { margin-bottom:0; }
+    .term { font-weight:600; color:#6366f1; }
+    .metric-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; margin-top:16px; }
+    .metric-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px; }
+    .metric-name { font-size:0.75rem; font-weight:700; color:#6366f1; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+    .metric-desc { font-size:0.8125rem; color:#475569; line-height:1.6; }
+    .metric-value { display:inline-block; margin-top:8px; font-size:0.75rem; font-family:monospace; background:#eef2ff; color:#4338ca; padding:2px 8px; border-radius:4px; }
+    .spectrum { background:#1e293b; border-radius:10px; padding:20px; margin:16px 0; position:relative; overflow:hidden; }
+    .spec-bar { height:40px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:600; color:white; text-shadow:0 1px 2px rgba(0,0,0,0.5); }
+    .link { color:#6366f1; text-decoration:none; font-weight:500; }
+    .link:hover { text-decoration:underline; }
+    table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+    th { background:#f1f5f9; color:#374151; font-weight:600; padding:8px 12px; text-align:left; }
+    td { padding:8px 12px; border-bottom:1px solid #f1f5f9; color:#475569; }
+    tr:last-child td { border-bottom:none; }
+    code { background:#f1f5f9; color:#7c3aed; padding:1px 5px; border-radius:3px; font-family:monospace; font-size:0.8125rem; }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-slate-50">
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 h-screen">
+  <div class="p-5 border-b border-gray-100">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
+      <div>
+        <div class="text-sm font-semibold text-gray-900">DAB+ Monitor</div>
+        <div class="text-xs text-gray-400">Documentation</div>
+      </div>
+    </div>
+  </div>
+  <nav class="flex-1 p-3 space-y-1">
+    <a href="/"       class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Dashboard</a>
+    <a href="/stats"  class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Statistiques</a>
+    <a href="/config" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>Configuration</a>
+    <a href="/about"  class="sidebar-link active"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>À propos</a>
+  </nav>
+  <div class="p-4 border-t border-gray-100">
+    <a href="/logout" class="block text-center text-xs text-gray-400 hover:text-gray-600">Déconnexion</a>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<main class="flex-1 overflow-y-auto">
+  <header class="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10">
+    <h1 class="text-base font-semibold text-gray-900">À propos — DAB+ Monitor</h1>
+    <p class="text-xs text-gray-400 mt-0.5">Documentation technique et glossaire</p>
+  </header>
+
+  <div class="p-6 max-w-4xl space-y-6">
+
+    <!-- ── DAB+ ────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">📻</span>
+        La radio numérique DAB+
+      </div>
+      <p>
+        Le <span class="term">DAB+</span> (Digital Audio Broadcasting Plus) est la norme de radiodiffusion numérique terrestre utilisée en Europe, Australie et dans de nombreux pays. Il remplace progressivement la FM analogique en offrant une meilleure qualité sonore, une réception plus robuste et la possibilité de diffuser plusieurs stations sur une même fréquence.
+      </p>
+      <p>
+        Contrairement à la FM où chaque fréquence ne porte qu'une seule station, le DAB+ regroupe plusieurs stations dans un <span class="term">multiplex</span> (aussi appelé ensemble). Un multiplex occupe une bande de 1,536 MHz dans la bande III VHF (174–240 MHz) et peut contenir jusqu'à une vingtaine de services audio.
+      </p>
+      <p>
+        La modulation utilisée est <span class="term">OFDM</span> (Orthogonal Frequency Division Multiplexing) avec codage DQPSK, qui offre une excellente immunité aux réflexions et aux trajets multiples — particulièrement utile en zone urbaine ou en déplacement. Le codec audio est <span class="term">HE-AAC v2</span> (High Efficiency AAC), bien plus efficace que le MP2 utilisé en DAB.
+      </p>
+
+      <!-- Schéma spectre -->
+      <div class="spectrum">
+        <div class="text-xs text-slate-400 mb-3 font-mono">Bande III VHF — Canaux DAB+ (exemple)</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px">
+          <div class="spec-bar" style="background:#6366f1">5A<br><span style="font-size:9px">174.9</span></div>
+          <div class="spec-bar" style="background:#8b5cf6">7A<br><span style="font-size:9px">188.9</span></div>
+          <div class="spec-bar" style="background:#06b6d4">9A<br><span style="font-size:9px">202.9</span></div>
+          <div class="spec-bar" style="background:#10b981">10B<br><span style="font-size:9px">211.6</span></div>
+          <div class="spec-bar" style="background:#f59e0b">11A<br><span style="font-size:9px">216.9</span></div>
+          <div class="spec-bar" style="background:#ef4444">12D<br><span style="font-size:9px">229.1</span></div>
+        </div>
+        <div class="text-xs text-slate-500 mt-2 text-center">Chaque canal = 1 multiplex = N services radio</div>
+      </div>
+    </div>
+
+    <!-- ── Architecture ──────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🔧</span>
+        Architecture de DAB+ Monitor
+      </div>
+      <p>
+        DAB+ Monitor est construit sur un Raspberry Pi 4 avec un dongle <span class="term">RTL-SDR Blog V4</span>. Le signal RF est capté par le dongle SDR, puis décodé par <span class="term">welle-cli</span>, la version headless de welle.io. Une application Flask agrège les données et les expose via une interface web en temps réel.
+      </p>
+
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;margin:12px 0;font-family:monospace;font-size:0.8125rem;color:#374151">
+        <div style="color:#6366f1;font-weight:700;margin-bottom:8px">Pipeline de traitement :</div>
+        <div>Antenne → RTL-SDR Blog V4</div>
+        <div style="margin-left:16px">↓ Signal IQ 2.048 MHz</div>
+        <div>welle-cli -c 9A -Dw 7979</div>
+        <div style="margin-left:16px">↓ Démodulation OFDM + décodage HE-AAC</div>
+        <div>API HTTP localhost:7979</div>
+        <div style="margin-left:16px">↓ /mux.json (polling 2s) + /mp3/&lt;SID&gt; + /slide/&lt;SID&gt;</div>
+        <div>dabplus_monitor.py</div>
+        <div style="margin-left:16px">↓ Flask SSE → navigateur</div>
+        <div>Dashboard temps réel</div>
+      </div>
+
+      <p>
+        Le <span class="term">VU-mètre</span> affiché dans le détail d'un service est calculé en temps réel par <code>ffmpeg</code> avec le filtre <code>astats</code> appliqué directement sur le flux MP3 du service sélectionné — indépendamment des niveaux fournis par welle-cli.
+      </p>
+    </div>
+
+    <!-- ── Métriques RF ────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">📡</span>
+        Métriques RF du multiplex
+      </div>
+      <p>Ces indicateurs caractérisent la qualité du signal reçu au niveau du multiplex entier, indépendamment des services individuels.</p>
+
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-name">SNR — Signal-to-Noise Ratio</div>
+          <div class="metric-desc">Rapport signal sur bruit du signal OFDM reçu. Plus la valeur est élevée, meilleure est la réception. En dessous de 5 dB la démodulation devient difficile ; au dessus de 15 dB la réception est excellente.</div>
+          <div class="metric-value">≥ 10 dB = bonne réception</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">FIC Quality</div>
+          <div class="metric-desc">Le <strong>Fast Information Channel</strong> transporte la structure du multiplex (liste des services, paramètres de démodulation). Le taux de qualité FIC indique le pourcentage de trames FIC correctement décodées. À 100%, toute la signalisation est reçue sans erreur.</div>
+          <div class="metric-value">100% = pas d'erreur</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Gain RTL-SDR</div>
+          <div class="metric-desc">Amplification appliquée par le dongle RTL-SDR. Réglé à -1 pour le mode automatique (AGC). Un gain trop élevé peut saturer l'entrée et dégrader la réception malgré un signal fort.</div>
+          <div class="metric-value">-1 = auto (AGC)</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Ensemble ID</div>
+          <div class="metric-desc">Identifiant hexadécimal unique du multiplex, défini lors de l'autorisation ARCOM. Permet d'identifier un multiplex même si son nom change. Chaque multiplex a un EID unique dans son pays.</div>
+          <div class="metric-value">ex: 0xf030 = La Roche s/Yon</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Correction fréquence</div>
+          <div class="metric-desc">Décalage fréquentiel mesuré par welle-cli entre la fréquence nominale du canal et la fréquence réelle reçue. Causé par l'imprécision de l'oscillateur du RTL-SDR (corrigé par l'AGC de welle-cli).</div>
+          <div class="metric-value">en Hz — idéalement proche de 0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Métriques service ──────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🎵</span>
+        Métriques par service
+      </div>
+      <p>Chaque service (station radio) dans le multiplex dispose de ses propres indicateurs de qualité et de métadonnées.</p>
+
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-name">SID — Service Identifier</div>
+          <div class="metric-desc">Identifiant hexadécimal unique du service dans le multiplex. Utilisé pour adresser les flux audio (<code>/mp3/SID</code>) et les slideshows (<code>/slide/SID</code>).</div>
+          <div class="metric-value">ex: 0xfa41 = GRAFFITI</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Bitrate</div>
+          <div class="metric-desc">Débit alloué au service audio dans le multiplex. En DAB+ avec HE-AAC, 88–128 kbps offre une qualité proche du CD. Un débit faible (32–48 kbps) est acceptable en HE-AAC v2 mais audible en comparaison.</div>
+          <div class="metric-value">88 kbps = standard local FR</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Protection EEP</div>
+          <div class="metric-desc">Le <strong>Equal Error Protection</strong> définit le taux de redondance appliqué aux données du service. EEP 3-A est le profil le plus courant en France. Une protection plus élevée améliore la robustesse en conditions difficiles au détriment du débit utile.</div>
+          <div class="metric-value">EEP 1-A à 4-B</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">DLS — Dynamic Label Segment</div>
+          <div class="metric-desc">Équivalent DAB+ du RadioText FM. Texte dynamique diffusé par la station : titre, artiste, informations programme. Mis à jour à chaque changement de titre ou d'émission.</div>
+          <div class="metric-value">jusqu'à 128 caractères</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Sous-canal (SubCh ID)</div>
+          <div class="metric-desc">Numéro du sous-canal logique dans le multiplex. Le multiplex dispose de 864 unités de capacité (CU) réparties entre tous les services. Chaque sous-canal occupe une tranche de ces CU proportionnelle à son débit.</div>
+          <div class="metric-value">0–63</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">PTY — Programme Type</div>
+          <div class="metric-desc">Catégorie de programme définie par la norme RDS/DAB+. Permet aux récepteurs de filtrer les stations par genre : News, Pop Music, Rock, Classical, Jazz, Talk, etc.</div>
+          <div class="metric-value">ex: Pop Music, Talk</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Erreurs AAC</div>
+          <div class="metric-desc">Nombre de trames AAC corrompues après correction d'erreur. Des erreurs AAC fréquentes produisent des artefacts audio audibles (clics, mutes). Compteur cumulatif depuis le démarrage du monitoring.</div>
+          <div class="metric-value">0 = parfait</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-name">Erreurs Frame / RS</div>
+          <div class="metric-desc">Les <strong>Frame errors</strong> indiquent des erreurs au niveau des trames DAB. Les erreurs <strong>RS</strong> (Reed-Solomon) montrent des corrections nécessaires au niveau FEC. Un RS élevé révèle un signal dégradé mais encore décodable.</div>
+          <div class="metric-value">RS &gt; 100 = signal limite</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VU-mètre ────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🎚️</span>
+        VU-mètre et niveaux audio
+      </div>
+      <p>
+        Le VU-mètre affiché dans le détail d'un service est calculé en analysant directement le flux MP3 du service actif. <code>ffmpeg</code> applique le filtre <code>astats</code> qui mesure le niveau RMS des canaux gauche et droit avec une fenêtre de 100 ms, donnant un VU-mètre réactif en quasi temps réel.
+      </p>
+      <p>
+        Les <span class="term">niveaux captés</span> affichés séparément proviennent directement de welle-cli via <code>/mux.json</code> et sont mis à jour une fois par seconde. Ils représentent le niveau PCM brut du décodeur AAC avant tout traitement.
+      </p>
+
+      <table>
+        <tr><th>Valeur dBFS</th><th>Interprétation</th><th>Couleur</th></tr>
+        <tr><td><code>0 dBFS</code></td><td>Pleine échelle numérique — saturation</td><td style="color:#ef4444">■ Rouge</td></tr>
+        <tr><td><code>-3 à 0 dBFS</code></td><td>Zone limite — loudness élevé</td><td style="color:#ef4444">■ Rouge</td></tr>
+        <tr><td><code>-12 à -3 dBFS</code></td><td>Zone normale broadcast</td><td style="color:#f97316">■ Orange</td></tr>
+        <tr><td><code>&lt; -12 dBFS</code></td><td>Niveau faible ou silence</td><td style="color:#22c55e">■ Vert</td></tr>
+        <tr><td><code>-100 dBFS</code></td><td>Silence total</td><td style="color:#9ca3af">■ Gris</td></tr>
+      </table>
+    </div>
+
+    <!-- ── Slideshow ──────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🖼️</span>
+        Slideshow MOT
+      </div>
+      <p>
+        Le <span class="term">MOT</span> (Multimedia Object Transfer) est un protocole DAB+ permettant de diffuser des images en parallèle du flux audio. Chaque service peut envoyer des images JPEG ou PNG de 320×240 pixels minimum, typiquement : pochette d'album, logo de la station, publicité ou information de programme.
+      </p>
+      <p>
+        Les images sont récupérées depuis le serveur welle-cli via l'endpoint <code>/slide/&lt;SID&gt;</code>. Le champ <code>mot.time</code> dans le JSON indique le timestamp de la dernière image reçue — DAB+ Monitor ne recharge l'image que si ce timestamp change, évitant des requêtes inutiles.
+      </p>
+      <p>
+        Toutes les stations ne diffusent pas de slideshow. Les services sans image affichent un cadre "Pas d'image".
+      </p>
+    </div>
+
+    <!-- ── welle-cli ──────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">⚙️</span>
+        welle-cli et RTL-SDR
+      </div>
+      <p>
+        <span class="term">welle-cli</span> est la version ligne de commande de <a href="https://www.welle.io" class="link" target="_blank">welle.io</a>, un logiciel open source de réception DAB/DAB+ sous Linux, Windows et macOS. DAB+ Monitor utilise son mode webserver (<code>-Dw 7979</code>) qui expose une API HTTP locale permettant d'accéder aux données du multiplex, aux flux audio MP3 de chaque service et aux images slideshow.
+      </p>
+      <p>
+        Le <span class="term">RTL-SDR Blog V4</span> est un dongle USB SDR (Software Defined Radio) basé sur la puce Rafael Micro R828D, avec un oscillateur TCXO à 1 ppm de précision. Il permet de recevoir les signaux RF entre 100 kHz et 1,766 GHz. Pour la réception DAB+, la bande III (174–240 MHz) est utilisée avec un taux d'échantillonnage de 2,048 MHz.
+      </p>
+
+      <table>
+        <tr><th>Commande welle-cli</th><th>Description</th></tr>
+        <tr><td><code>-c 9A</code></td><td>Canal Band III à écouter (9A = 202.928 MHz)</td></tr>
+        <tr><td><code>-D</code></td><td>Décode tous les services simultanément</td></tr>
+        <tr><td><code>-w 7979</code></td><td>Active le webserver sur le port 7979</td></tr>
+        <tr><td><code>-g -1</code></td><td>Gain automatique (AGC)</td></tr>
+        <tr><td><code>-C N</code></td><td>Mode carousel — N services en alternance (Pi moins puissant)</td></tr>
+      </table>
+    </div>
+
+    <!-- ── Dots couleur ──────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🟢</span>
+        Signification des indicateurs de couleur
+      </div>
+      <table>
+        <tr><th>Couleur</th><th>Signification</th></tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e88;vertical-align:middle;margin-right:6px"></span>Vert</td>
+          <td>Service présent dans le bouquet et audio actif</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#f97316;box-shadow:0 0 6px #f9731688;vertical-align:middle;margin-right:6px"></span>Orange</td>
+          <td>Service présent mais silence audio détecté (niveau &lt; seuil)</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px #ef444488;vertical-align:middle;margin-right:6px"></span>Rouge</td>
+          <td>Service absent du bouquet (plus diffusé ou perte de signal)</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#9ca3af;vertical-align:middle;margin-right:6px"></span>Gris</td>
+          <td>Données insuffisantes ou niveau audio très faible (en cours de décodage)</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#22c55e;vertical-align:middle;margin-right:6px"></span>Signal OK (header)</td>
+          <td>Ensemble décodé correctement : SNR et FIC Quality au-dessus des seuils</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ef4444;vertical-align:middle;margin-right:6px"></span>Signal dégradé (header)</td>
+          <td>SNR ou FIC Quality en dessous des seuils configurés</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ── Liens ──────────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <span class="icon">🔗</span>
+        Liens utiles
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <a href="https://github.com/LyonelB/dabplus-monitor" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">DAB+ Monitor</div>
+          <div class="metric-desc">Dépôt GitHub du projet — code source, issues, releases.</div>
+        </a>
+        <a href="https://www.welle.io" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">welle.io</div>
+          <div class="metric-desc">Site officiel du logiciel de réception DAB/DAB+ open source.</div>
+        </a>
+        <a href="https://github.com/AlbrechtL/welle.io" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">welle.io GitHub</div>
+          <div class="metric-desc">Code source de welle.io et welle-cli, documentation API.</div>
+        </a>
+        <a href="https://www.rtl-sdr.com/rtl-sdr-blog-v4-dongle-initial-release/" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">RTL-SDR Blog V4</div>
+          <div class="metric-desc">Documentation du dongle SDR utilisé pour la réception DAB+.</div>
+        </a>
+        <a href="https://www.dabplus.fr" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">dabplus.fr</div>
+          <div class="metric-desc">Carte des multiplex DAB+ en France, liste des canaux et émetteurs.</div>
+        </a>
+        <a href="https://www.worlddab.org" target="_blank" class="metric-card" style="text-decoration:none;display:block">
+          <div class="metric-name">WorldDAB</div>
+          <div class="metric-desc">Organisation internationale de promotion du standard DAB/DAB+.</div>
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-xs text-gray-400 pb-4">
+      DAB+ Monitor — Projet open source — Graffiti Radio, La Roche-sur-Yon
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>
