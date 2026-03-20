@@ -168,7 +168,7 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 180px 1fr;gap:16px">
+      <div style="display:grid;grid-template-columns:1fr 350px 1fr;gap:16px">
 
         <!-- Colonne gauche : Audio -->
         <div class="space-y-2">
@@ -223,9 +223,9 @@
         <!-- Colonne centrale : Image -->
         <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
           <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Image</div>
-          <div style="width:160px;height:120px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <div style="width:350px;height:250px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0">
             <img id="detail-slide-img" src="" alt=""
-              style="width:160px;height:120px;object-fit:contain;cursor:pointer;display:block;opacity:0"
+              style="width:320px;height:240px;object-fit:contain;cursor:pointer;display:block;opacity:0"
               onclick="document.getElementById('slide-fullscreen').style.display='flex'">
             <span id="slide-placeholder" style="font-size:11px;color:#d1d5db">Pas d'image</span>
           </div>
@@ -259,16 +259,6 @@
             <div>
               <div class="text-gray-400">PTY</div>
               <div class="font-mono font-semibold text-gray-800 truncate" id="detail-pty">—</div>
-            </div>
-          </div>
-          </div>
-
-          
-              </div>
-              <div class="bg-gray-50 rounded p-1 text-center">
-                <div class="text-gray-400">R</div>
-                <div class="font-mono font-semibold" id="detail-welle-r">—</div>
-              </div>
             </div>
           </div>
 
@@ -603,13 +593,13 @@ function updateServiceDetail(svc) {
     if (slidePlaceholder) slidePlaceholder.style.display = 'block';
   }
     
-  }
 
   // Erreurs
   document.getElementById('detail-err-aac').textContent  = svc.err_aac   ?? '—';
   document.getElementById('detail-err-frame').textContent= svc.err_frame ?? '—';
   document.getElementById('detail-err-rs').textContent   = svc.err_rs    ?? '—';
 
+}
 function setBar(id, pct, color) {
   const el = document.getElementById(id);
   el.style.width      = pct + '%';
