@@ -457,6 +457,26 @@ def proxy_slide(sid):
         logger.debug(f"Slide {sid} : {e}")
     return '', 404
 
+
+@app.route('/stats')
+@auth.login_required
+def stats_page():
+    return render_template('stats.html')
+
+@app.route('/api/stats/uptime')
+@auth.login_required
+def api_uptime():
+    if monitor:
+        return jsonify(monitor.get_uptime_stats())
+    return jsonify([])
+
+@app.route('/api/stats/alerts')
+@auth.login_required
+def api_alerts():
+    if monitor:
+        return jsonify(monitor.get_alert_history())
+    return jsonify([])
+
 try:
     monitor = DABPlusMonitor('config.json')
     monitor.start()

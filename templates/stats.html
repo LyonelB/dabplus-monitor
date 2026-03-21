@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAB+ Monitor — Statistiques</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .sidebar-link { display:flex; align-items:center; gap:10px; padding:10px 16px; border-radius:8px; color:#64748b; font-size:0.875rem; font-weight:500; transition:all 0.15s; text-decoration:none; }
+    .sidebar-link:hover, .sidebar-link.active { background:#eff6ff; color:#2563eb; }
+    .sidebar-link svg { width:18px; height:18px; flex-shrink:0; }
+    .section { background:white; border:1px solid #f1f5f9; border-radius:12px; padding:20px; margin-bottom:16px; }
+    .section-title { font-size:0.75rem; font-weight:700; color:#2563eb; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+    .uptime-bar-bg { height:8px; background:#f1f5f9; border-radius:4px; overflow:hidden; }
+    .uptime-bar { height:100%; border-radius:4px; transition:width 0.5s ease; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+    .badge-green  { background:#dcfce7; color:#166534; }
+    .badge-orange { background:#ffedd5; color:#9a3412; }
+    .badge-red    { background:#fee2e2; color:#991b1b; }
+    .alert-row { border-left:3px solid #e5e7eb; padding:10px 14px; margin-bottom:8px; background:#f8fafc; border-radius:0 8px 8px 0; font-size:0.8125rem; }
+    .alert-row.ensemble { border-color:#ef4444; }
+    .alert-row.silence  { border-color:#f97316; }
+    .alert-row.lost     { border-color:#dc2626; }
+    .alert-row.test     { border-color:#2563eb; }
+    .empty-state { text-align:center; color:#9ca3af; font-size:0.875rem; padding:32px; }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-slate-50">
+
+<aside class="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 h-screen">
+  <div class="p-5 border-b border-gray-100">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
+      <div>
+        <div class="text-sm font-semibold text-gray-900">DAB+ Monitor</div>
+        <div class="text-xs text-gray-400" id="sidebar-ensemble">—</div>
+      </div>
+    </div>
+  </div>
+  <nav class="flex-1 p-3 space-y-1">
+    <a href="/"       class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Dashboard</a>
+    <a href="/stats"  class="sidebar-link active"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Statistiques</a>
+    <a href="/config" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>Configuration</a>
+    <a href="/about"  class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>À propos</a>
+  </nav>
+  <div class="p-4 border-t border-gray-100 space-y-2 text-xs text-gray-400">
+    <div class="flex justify-between"><span>Canal</span><span class="font-mono font-semibold text-blue-600" id="sidebar-channel">—</span></div>
+    <div class="flex justify-between"><span>Uptime</span><span class="font-mono" id="sidebar-uptime">—</span></div>
+    <a href="/logout" class="block text-center hover:text-gray-600 mt-2">Déconnexion</a>
+  </div>
+</aside>
+
+<main class="flex-1 overflow-y-auto">
+  <header class="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10 flex items-center justify-between">
+    <div>
+      <h1 class="text-base font-semibold text-gray-900">Statistiques — 24 heures glissantes</h1>
+      <p class="text-xs text-gray-400 mt-0.5">Durée de présence des services et historique des alertes</p>
+    </div>
+    <button onclick="loadAll()" class="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition">⟳ Actualiser</button>
+  </header>
+
+  <div class="p-6 max-w-4xl space-y-5">
+
+    <div class="grid grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
+        <div class="text-xs text-gray-400 mb-1">Uptime monitoring</div>
+        <div class="text-2xl font-bold text-gray-900" id="stat-uptime">—</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
+        <div class="text-xs text-gray-400 mb-1">Services suivis</div>
+        <div class="text-2xl font-bold text-gray-900" id="stat-services">—</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
+        <div class="text-xs text-gray-400 mb-1">Alertes (24h)</div>
+        <div class="text-2xl font-bold text-gray-900" id="stat-alerts">—</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
+        <div class="text-xs text-gray-400 mb-1">Canal actif</div>
+        <div class="text-2xl font-bold text-blue-600" id="stat-channel">—</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Durée de présence des services (24h)
+      </div>
+      <div id="uptime-list"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+        Historique des alertes (24h)
+      </div>
+      <div id="alert-list"><div class="empty-state">Chargement…</div></div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+async function loadAll() {
+  await Promise.all([loadStats(), loadUptime(), loadAlerts()]);
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('sidebar-ensemble').textContent = d.ensemble_label || '—';
+    document.getElementById('sidebar-channel').textContent  = d.channel || '—';
+    document.getElementById('stat-channel').textContent     = d.channel || '—';
+    document.getElementById('stat-uptime').textContent      = formatUptime(d.uptime || 0);
+    document.getElementById('sidebar-uptime').textContent   = formatUptime(d.uptime || 0);
+  } catch(e) {}
+}
+
+async function loadUptime() {
+  try {
+    const r = await fetch('/api/stats/uptime');
+    const data = await r.json();
+    document.getElementById('stat-services').textContent = data.length;
+    const list = document.getElementById('uptime-list');
+    if (!data.length) {
+      list.innerHTML = '<div class="empty-state">Aucune donnée — le monitoring doit tourner quelques minutes.</div>';
+      return;
+    }
+    list.innerHTML = data.map(s => {
+      const pct   = s.uptime_pct;
+      const color = pct >= 99 ? '#22c55e' : pct >= 90 ? '#f97316' : '#ef4444';
+      const badge = pct >= 99 ? 'badge-green' : pct >= 90 ? 'badge-orange' : 'badge-red';
+      const since = s.first_seen ? new Date(s.first_seen * 1000).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}) : '—';
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f8fafc">
+        <div style="width:150px;flex-shrink:0">
+          <div style="font-size:0.875rem;font-weight:600;color:#111827">${escHtml(s.label)}</div>
+          <div style="font-size:10px;color:#9ca3af;font-family:monospace">${escHtml(s.sid)}</div>
+        </div>
+        <div style="flex:1"><div class="uptime-bar-bg"><div class="uptime-bar" style="width:${pct}%;background:${color}"></div></div></div>
+        <div style="width:60px;text-align:right"><span class="badge ${badge}">${pct.toFixed(1)} %</span></div>
+        <div style="width:80px;text-align:right;font-size:11px;color:#9ca3af">${s.checks} mesures</div>
+        <div style="width:70px;text-align:right;font-size:11px;color:#9ca3af">depuis ${since}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('uptime-list').innerHTML = '<div class="empty-state">Erreur de chargement</div>';
+  }
+}
+
+async function loadAlerts() {
+  try {
+    const r = await fetch('/api/stats/alerts');
+    const data = await r.json();
+    document.getElementById('stat-alerts').textContent = data.length;
+    const list = document.getElementById('alert-list');
+    if (!data.length) {
+      list.innerHTML = '<div class="empty-state">✅ Aucune alerte dans les 24 dernières heures</div>';
+      return;
+    }
+    list.innerHTML = data.map(a => {
+      const dt  = new Date(a.ts * 1000);
+      const hm  = dt.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+      const dmy = dt.toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit'});
+      const type = (a.type || '').toLowerCase();
+      const cls  = type.includes('ensemble') || type.includes('signal') ? 'ensemble'
+                 : type.includes('silence') ? 'silence'
+                 : type.includes('perdu') || type.includes('absent') ? 'lost'
+                 : type.includes('test') ? 'test' : '';
+      const icon = cls === 'ensemble' ? '📡' : cls === 'silence' ? '🔇' : cls === 'lost' ? '❌' : cls === 'test' ? '✉️' : '⚠️';
+      return `<div class="alert-row ${cls}">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><span style="margin-right:6px">${icon}</span><span style="font-weight:600;color:#374151">${escHtml(a.type)}</span></div>
+          <span style="font-size:11px;color:#9ca3af;font-family:monospace">${dmy} ${hm}</span>
+        </div>
+        ${a.details ? `<div style="margin-top:4px;color:#6b7280;font-size:11px">${escHtml(a.details)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('alert-list').innerHTML = '<div class="empty-state">Erreur de chargement</div>';
+  }
+}
+
+function formatUptime(s) {
+  if (!s) return '—';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 24 ? `${Math.floor(h/24)}j ${h%24}h` : `${h}h ${m}m`;
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
