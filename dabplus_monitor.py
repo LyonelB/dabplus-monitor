@@ -95,7 +95,15 @@ class DABPlusMonitor:
         self.last_db_save = time.time()
 
         # ── Stats exposées à l'API ──────────────────────────────────────
-        self.stats_lock = threading.Lock()
+        self.stats_lock  = threading.Lock()
+
+        # ── Historique uptime services (24h) ────────────────────────────
+        self.uptime_stats = {}
+        self.uptime_lock  = threading.Lock()
+
+        # ── Historique alertes (24h glissantes) ─────────────────────────
+        self.alert_history = []
+        self.alert_lock    = threading.Lock()
         self.stats = {
             'start_time':       None,
             'uptime':           0,
@@ -107,6 +115,20 @@ class DABPlusMonitor:
             'ensemble_label':   '',
             'ensemble_id':      '',
         }
+
+    def _send_alert_tracked(self, alert_type, details, skip_cooldown=False):
+        """Envoie une alerte email et l'enregistre dans l'historique 24h."""
+        self.email_alert.send_alert(alert_type, details, skip_cooldown=skip_cooldown)
+        now = time.time()
+        entry = {'ts': now, 'type': alert_type, 'details': details}
+        cutoff = now - 86400
+        with self.alert_lock:
+            self.alert_history.append(entry)
+            # Purger > 24h
+            self.alert_history = [a for a in self.alert_history if a['ts'] > cutoff]
+        with self.stats_lock:
+            self.stats['alerts_sent'] += 1
+            self.stats['last_alert'] = datetime.fromtimestamp(now).strftime('%d/%m/%Y %H:%M')
 
     # ═══════════════════════════════════════════════════════════════════════
     # Démarrage / arrêt
@@ -460,7 +482,7 @@ class DABPlusMonitor:
                 snr = self.rf_metrics['snr']
                 fic = self.rf_metrics['fic_quality']
                 logger.error(f"Ensemble perdu — SNR={snr:.1f} dB, FIC={fic:.0f}%")
-                self.email_alert.send_alert(
+                self._send_alert_tracked(
                     alert_type="Ensemble DAB+ hors ligne",
                     details=(
                         f"Canal : {self.ens_config['channel']} "
@@ -479,7 +501,7 @@ class DABPlusMonitor:
         else:
             if self.ensemble_alert_sent:
                 logger.info("Ensemble DAB+ rétabli")
-                self.email_alert.send_alert(
+                self._send_alert_tracked(
                     alert_type="Ensemble DAB+ rétabli",
                     details=f"Canal {self.ens_config['channel']} — réception normale.",
                     skip_cooldown=True
@@ -502,7 +524,7 @@ class DABPlusMonitor:
                         logger.warning(
                             f"Service absent depuis {absence:.0f}s : {state.label}"
                         )
-                        self.email_alert.send_alert(
+                        self._send_alert_tracked(
                             alert_type=f"Service DAB+ absent : {state.label}",
                             details=(
                                 f"Le service {state.label} ({sid}) n'est plus "
@@ -518,7 +540,7 @@ class DABPlusMonitor:
 
                 elif state.present and state.lost_alert_sent:
                     logger.info(f"Service rétabli : {state.label}")
-                    self.email_alert.send_alert(
+                    self._send_alert_tracked(
                         alert_type=f"Service DAB+ rétabli : {state.label}",
                         details=f"Le service {state.label} ({sid}) est de nouveau présent.",
                         skip_cooldown=True
@@ -536,7 +558,7 @@ class DABPlusMonitor:
                             f"Silence {state.label} depuis {duration:.0f}s "
                             f"({audio_avg:.1f} dBFS)"
                         )
-                        self.email_alert.send_alert(
+                        self._send_alert_tracked(
                             alert_type=f"Silence audio : {state.label}",
                             details=(
                                 f"Le service {state.label} ({sid}) est silencieux "
@@ -556,6 +578,30 @@ class DABPlusMonitor:
             uptime = (datetime.now() - self.stats['start_time']).total_seconds()
             with self.stats_lock:
                 self.stats['uptime'] = int(uptime)
+
+        # Tracker la présence de chaque service (pour stats uptime 24h)
+        now = time.time()
+        cutoff = now - 86400  # 24h
+        with self.services_lock:
+            services_snap = dict(self.services)
+        with self.uptime_lock:
+            for sid, svc in services_snap.items():
+                if sid not in self.uptime_stats:
+                    self.uptime_stats[sid] = {
+                        'label':      svc.label,
+                        'checks':     0,
+                        'present':    0,
+                        'first_seen': now,
+                    }
+                self.uptime_stats[sid]['label']   = svc.label
+                self.uptime_stats[sid]['checks']  += 1
+                if svc.present:
+                    self.uptime_stats[sid]['present'] += 1
+            # Purger les services non vus depuis 24h (nettoyage mémoire)
+            to_del = [s for s, v in self.uptime_stats.items()
+                      if v['first_seen'] < cutoff and s not in services_snap]
+            for s in to_del:
+                del self.uptime_stats[s]
 
     # ═══════════════════════════════════════════════════════════════════════
     # Streaming Icecast
@@ -625,21 +671,18 @@ class DABPlusMonitor:
 
 
     def _kill_all_streaming(self):
-        """Tue tous les processus ffmpeg streaming et vide la liste des PIDs."""
+        """Tue tous les processus ffmpeg streaming trackés par PGID."""
         import os, signal, time
-        # Tuer via _stream_pids (PIDs trackés)
-        for pid in list(getattr(self, '_stream_pids', [])):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except Exception:
-                pass
-        # Tuer aussi stream_process courant
+        procs = getattr(self, '_stream_procs', [])
         if self.stream_process:
+            procs.append(self.stream_process)
+        for p in procs:
             try:
-                self.stream_process.kill()
+                pgid = os.getpgid(p.pid)
+                os.killpg(pgid, signal.SIGKILL)
             except Exception:
-                pass
-        self._stream_pids = []
+                try: p.kill()
+                except Exception: pass
         self._stream_procs = []
         self.stream_process = None
         time.sleep(0.3)
@@ -668,8 +711,7 @@ class DABPlusMonitor:
 
         logger.info(f"Streaming SID {self.active_sid} → Icecast")
 
-        sid_at_start = self.active_sid
-        while self.running and self.active_sid == sid_at_start:
+        while self.running:
             try:
                 self.stream_process = subprocess.Popen(
                     cmd,
@@ -681,9 +723,6 @@ class DABPlusMonitor:
                     self._stream_pids = []
                 self._stream_pids.append(self.stream_process.pid)
                 self.stream_process.wait()
-                # Si active_sid a changé, sortir sans relancer
-                if self.active_sid != sid_at_start:
-                    break
             except Exception as e:
                 logger.error(f"Erreur streaming : {e}")
             if self.running:
@@ -711,6 +750,31 @@ class DABPlusMonitor:
     # ═══════════════════════════════════════════════════════════════════════
     # Données exposées à l'API Flask
     # ═══════════════════════════════════════════════════════════════════════
+
+    def get_uptime_stats(self) -> list:
+        """Retourne les stats de présence des services (24h)."""
+        with self.uptime_lock:
+            result = []
+            for sid, v in self.uptime_stats.items():
+                pct = round(v['present'] / v['checks'] * 100, 1) if v['checks'] > 0 else 0
+                result.append({
+                    'sid':        sid,
+                    'label':      v['label'],
+                    'checks':     v['checks'],
+                    'present':    v['present'],
+                    'uptime_pct': pct,
+                    'first_seen': v['first_seen'],
+                })
+            return sorted(result, key=lambda x: x['label'])
+
+    def get_alert_history(self) -> list:
+        """Retourne l'historique des alertes des 24 dernières heures."""
+        cutoff = time.time() - 86400
+        with self.alert_lock:
+            return sorted(
+                [a for a in self.alert_history if a['ts'] > cutoff],
+                key=lambda x: x['ts'], reverse=True
+            )
 
     def get_stats(self) -> dict:
         """Retourne l'état complet pour le SSE Flask."""
