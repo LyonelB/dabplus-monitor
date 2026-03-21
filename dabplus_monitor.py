@@ -86,6 +86,7 @@ class DABPlusMonitor:
 
         # ── Streaming audio ─────────────────────────────────────────────
         self.active_sid = self.stream_cfg.get('default_sid', '')
+        self._stream_lock  = threading.Lock()
         self.stream_queue = queue.Queue(maxsize=500)
 
         # ── Alertes ─────────────────────────────────────────────────────
@@ -568,7 +569,7 @@ class DABPlusMonitor:
         """
         import re
         self._vu_process = None
-        pattern = re.compile(r'FTPK:\s*([-\d.]+)\s+([-\d.]+)\s+dBFS')
+        pattern = re.compile(r'lavfi\.astats\.(\d+)\.RMS_level=([+-]?[\d.]+|(-?)inf)')
 
         while self.running:
             sid = self.active_sid
@@ -580,7 +581,7 @@ class DABPlusMonitor:
             cmd = [
                 "ffmpeg", "-reconnect", "1",
                 "-i", source,
-                "-af", "ebur128=peak=true",
+                "-af", "astats=metadata=1:reset=1,ametadata=print",
                 "-f", "null", "-"
             ]
 
@@ -593,19 +594,24 @@ class DABPlusMonitor:
                 )
                 self._vu_process = proc
 
+                levels = {}
                 for raw in proc.stderr:
                     if not self.running or self.active_sid != sid:
                         break
                     try:
-                        line = raw.decode("utf-8", errors="ignore")
+                        line = raw.decode("utf-8", errors="ignore").strip()
                         m = pattern.search(line)
                         if m:
-                            l_val = float(m.group(1))
-                            r_val = float(m.group(2))
-                            with self.services_lock:
-                                if sid in self.services:
-                                    self.services[sid].vu_l = l_val
-                                    self.services[sid].vu_r = r_val
+                            ch  = int(m.group(1))
+                            val = m.group(2)
+                            db  = -100.0 if "inf" in val else float(val)
+                            levels[ch] = db
+                            if 1 in levels and 2 in levels:
+                                with self.services_lock:
+                                    if sid in self.services:
+                                        self.services[sid].vu_l = levels[1]
+                                        self.services[sid].vu_r = levels[2]
+                                levels = {}
                     except Exception:
                         pass
 
@@ -617,6 +623,26 @@ class DABPlusMonitor:
             if self.running:
                 time.sleep(2)
 
+
+    def _kill_all_streaming(self):
+        """Tue tous les processus ffmpeg streaming et vide la liste des PIDs."""
+        import os, signal, time
+        # Tuer via _stream_pids (PIDs trackés)
+        for pid in list(getattr(self, '_stream_pids', [])):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+        # Tuer aussi stream_process courant
+        if self.stream_process:
+            try:
+                self.stream_process.kill()
+            except Exception:
+                pass
+        self._stream_pids = []
+        self._stream_procs = []
+        self.stream_process = None
+        time.sleep(0.3)
 
     def _start_streaming(self):
         """
@@ -631,22 +657,33 @@ class DABPlusMonitor:
         bitrate      = self.stream_cfg.get('bitrate', '128k')
         source_url   = f"{self.welle_url}/mp3/{self.active_sid}"
 
-        cmd = (
-            f"ffmpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-            f"-i {source_url} "
-            f"-codec:a libmp3lame -b:a {bitrate} -ar {output_rate} -ac 2 "
-            f"-content_type audio/mpeg -f mp3 "
-            f"{icecast_url} 2>/dev/null"
-        )
+        cmd = [
+            'ffmpeg', '-reconnect', '1', '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
+            '-i', source_url,
+            '-codec:a', 'libmp3lame', '-b:a', str(bitrate),
+            '-ar', str(output_rate), '-ac', '2',
+            '-content_type', 'audio/mpeg', '-f', 'mp3', icecast_url
+        ]
 
         logger.info(f"Streaming SID {self.active_sid} → Icecast")
 
-        while self.running:
+        sid_at_start = self.active_sid
+        while self.running and self.active_sid == sid_at_start:
             try:
                 self.stream_process = subprocess.Popen(
-                    cmd, shell=True, executable='/bin/bash'
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
                 )
+                if not hasattr(self, '_stream_pids'):
+                    self._stream_pids = []
+                self._stream_pids.append(self.stream_process.pid)
                 self.stream_process.wait()
+                # Si active_sid a changé, sortir sans relancer
+                if self.active_sid != sid_at_start:
+                    break
             except Exception as e:
                 logger.error(f"Erreur streaming : {e}")
             if self.running:
@@ -654,28 +691,23 @@ class DABPlusMonitor:
 
     def switch_service(self, sid: str):
         """Change le service streamé vers Icecast."""
-        logger.info(f"Switch service → {sid}")
-        self.active_sid = sid
-
-        # Tuer ffmpeg streaming actuel
-        if self.stream_process:
-            try:
-                self.stream_process.kill()
-            except Exception:
-                pass
-
-        # Tuer ffmpeg VU actuel
-        if hasattr(self, '_vu_process') and self._vu_process:
-            try:
-                self._vu_process.kill()
-            except Exception:
-                pass
-
-        # Relancer streaming
-        if self.stream_cfg.get('enabled') and sid:
-            t = threading.Thread(target=self._start_streaming, daemon=True)
-            t.start()
-
+        if not self._stream_lock.acquire(blocking=False):
+            logger.debug("Switch déjà en cours, ignoré")
+            return
+        try:
+            logger.info(f"Switch service → {sid}")
+            self.active_sid = sid
+            self._kill_all_streaming()
+            if hasattr(self, '_vu_process') and self._vu_process:
+                try:
+                    self._vu_process.kill()
+                except Exception:
+                    pass
+            if self.stream_cfg.get('enabled') and sid:
+                t = threading.Thread(target=self._start_streaming, daemon=True)
+                t.start()
+        finally:
+            self._stream_lock.release()
     # ═══════════════════════════════════════════════════════════════════════
     # Données exposées à l'API Flask
     # ═══════════════════════════════════════════════════════════════════════

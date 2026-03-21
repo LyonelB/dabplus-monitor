@@ -508,9 +508,15 @@ function serviceDotClass(svc) {
 // Sélection service
 // ═══════════════════════════════════════════════════════════════
 function selectService(sid) {
+  // Couper le player si on change de service
+  if (selectedSid && selectedSid !== sid && isPlaying) {
+    stopPlay();
+  }
   selectedSid = sid;
   const svc   = servicesData[sid];
   if (!svc) return;
+
+
 
   // Mettre à jour les classes active
   document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
