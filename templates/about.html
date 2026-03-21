@@ -8,22 +8,22 @@
   <style>
     body { font-family: 'Inter', system-ui, sans-serif; }
     .sidebar-link { display:flex; align-items:center; gap:10px; padding:10px 16px; border-radius:8px; color:#64748b; font-size:0.875rem; font-weight:500; transition:all 0.15s; text-decoration:none; }
-    .sidebar-link:hover, .sidebar-link.active { background:#eef2ff; color:#6366f1; }
+    .sidebar-link:hover, .sidebar-link.active { background:#eff6ff; color:#2563eb; }
     .sidebar-link svg { width:18px; height:18px; flex-shrink:0; }
     .section { background:white; border:1px solid #f1f5f9; border-radius:12px; padding:24px; margin-bottom:20px; }
     .section-title { font-size:1rem; font-weight:700; color:#1e293b; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
-    .section-title .icon { width:32px; height:32px; border-radius:8px; background:#eef2ff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem; }
+    .section-title .icon { width:32px; height:32px; border-radius:8px; background:#eff6ff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem; }
     .section p { font-size:0.875rem; color:#475569; line-height:1.7; margin-bottom:10px; }
     .section p:last-child { margin-bottom:0; }
-    .term { font-weight:600; color:#6366f1; }
+    .term { font-weight:600; color:#2563eb; }
     .metric-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; margin-top:16px; }
     .metric-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px; }
-    .metric-name { font-size:0.75rem; font-weight:700; color:#6366f1; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+    .metric-name { font-size:0.75rem; font-weight:700; color:#2563eb; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
     .metric-desc { font-size:0.8125rem; color:#475569; line-height:1.6; }
-    .metric-value { display:inline-block; margin-top:8px; font-size:0.75rem; font-family:monospace; background:#eef2ff; color:#4338ca; padding:2px 8px; border-radius:4px; }
+    .metric-value { display:inline-block; margin-top:8px; font-size:0.75rem; font-family:monospace; background:#eff6ff; color:#1e40af; padding:2px 8px; border-radius:4px; }
     .spectrum { background:#1e293b; border-radius:10px; padding:20px; margin:16px 0; position:relative; overflow:hidden; }
     .spec-bar { height:40px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:600; color:white; text-shadow:0 1px 2px rgba(0,0,0,0.5); }
-    .link { color:#6366f1; text-decoration:none; font-weight:500; }
+    .link { color:#2563eb; text-decoration:none; font-weight:500; }
     .link:hover { text-decoration:underline; }
     table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
     th { background:#f1f5f9; color:#374151; font-weight:600; padding:8px 12px; text-align:left; }
@@ -38,7 +38,7 @@
 <aside class="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 h-screen">
   <div class="p-5 border-b border-gray-100">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
+      <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
       <div>
         <div class="text-sm font-semibold text-gray-900">DAB+ Monitor</div>
         <div class="text-xs text-gray-400">Documentation</div>
@@ -85,7 +85,7 @@
       <div class="spectrum">
         <div class="text-xs text-slate-400 mb-3 font-mono">Bande III VHF — Canaux DAB+ (exemple)</div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px">
-          <div class="spec-bar" style="background:#6366f1">5A<br><span style="font-size:9px">174.9</span></div>
+          <div class="spec-bar" style="background:#2563eb">5A<br><span style="font-size:9px">174.9</span></div>
           <div class="spec-bar" style="background:#8b5cf6">7A<br><span style="font-size:9px">188.9</span></div>
           <div class="spec-bar" style="background:#06b6d4">9A<br><span style="font-size:9px">202.9</span></div>
           <div class="spec-bar" style="background:#10b981">10B<br><span style="font-size:9px">211.6</span></div>
@@ -107,7 +107,7 @@
       </p>
 
       <div style="background:#f8fafc;border-radius:10px;padding:16px;margin:12px 0;font-family:monospace;font-size:0.8125rem;color:#374151">
-        <div style="color:#6366f1;font-weight:700;margin-bottom:8px">Pipeline de traitement :</div>
+        <div style="color:#2563eb;font-weight:700;margin-bottom:8px">Pipeline de traitement :</div>
         <div>Antenne → RTL-SDR Blog V4</div>
         <div style="margin-left:16px">↓ Signal IQ 2.048 MHz</div>
         <div>welle-cli -c 9A -Dw 7979</div>

@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>DAB+ Monitor — Configuration</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .sidebar-link { display:flex; align-items:center; gap:10px; padding:10px 16px; border-radius:8px; color:#64748b; font-size:0.875rem; font-weight:500; transition:all 0.15s; text-decoration:none; }
+    .sidebar-link:hover, .sidebar-link.active { background:#eff6ff; color:#2563eb; }
+    .sidebar-link svg { width:18px; height:18px; flex-shrink:0; }
+    .section { background:white; border:1px solid #f1f5f9; border-radius:12px; padding:20px; margin-bottom:16px; }
+    .section-title { font-size:0.75rem; font-weight:700; color:#2563eb; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+    .field-label { font-size:0.75rem; color:#6b7280; font-weight:500; margin-bottom:4px; }
+    .field-input { width:100%; padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:0.875rem; color:#111827; outline:none; transition:border 0.15s; }
+    .field-input:focus { border-color:#2563eb; box-shadow:0 0 0 3px #eff6ff; }
+    .btn-primary { background:#2563eb; color:white; padding:8px 16px; border-radius:8px; font-size:0.875rem; font-weight:500; cursor:pointer; border:none; transition:background 0.15s; }
+    .btn-primary:hover { background:#1d4ed8; }
+    .btn-secondary { background:white; color:#374151; padding:8px 16px; border-radius:8px; font-size:0.875rem; font-weight:500; cursor:pointer; border:1px solid #e5e7eb; transition:all 0.15s; }
+    .btn-secondary:hover { border-color:#2563eb; color:#2563eb; }
+    .btn-danger { background:#fee2e2; color:#dc2626; padding:8px 16px; border-radius:8px; font-size:0.875rem; font-weight:500; cursor:pointer; border:none; transition:background 0.15s; }
+    .btn-danger:hover { background:#fecaca; }
+    .toast { position:fixed; bottom:24px; right:24px; padding:12px 20px; border-radius:10px; font-size:0.875rem; font-weight:500; z-index:999; transform:translateY(80px); opacity:0; transition:all 0.3s; }
+    .toast.show { transform:translateY(0); opacity:1; }
+    .toast.success { background:#d1fae5; color:#065f46; }
+    .toast.error   { background:#fee2e2; color:#991b1b; }
+    .scan-result { border:1px solid #e5e7eb; border-radius:8px; padding:12px; cursor:pointer; transition:all 0.15s; margin-bottom:8px; }
+    .scan-result:hover { border-color:#2563eb; background:#f5f3ff; }
+    .scan-result.selected { border-color:#2563eb; background:#eff6ff; }
+    #scan-progress-bar { transition:width 0.4s ease; }
+  </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-slate-50">
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 h-screen">
+  <div class="p-5 border-b border-gray-100">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">D+</div>
+      <div>
+        <div class="text-sm font-semibold text-gray-900">DAB+ Monitor</div>
+        <div class="text-xs text-gray-400" id="sidebar-ensemble">—</div>
+      </div>
+    </div>
+  </div>
+  <nav class="flex-1 p-3 space-y-1">
+    <a href="/"       class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>Dashboard</a>
+    <a href="/stats"  class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Statistiques</a>
+    <a href="/config" class="sidebar-link active"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>Configuration</a>
+    <a href="/about"  class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>À propos</a>
+  </nav>
+  <div class="p-4 border-t border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs text-gray-500">Canal actif</span>
+      <span class="text-xs font-mono font-semibold text-blue-600" id="sidebar-channel">—</span>
+    </div>
+    <a href="/logout" class="block text-center text-xs text-gray-400 hover:text-gray-600 mt-2">Déconnexion</a>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<main class="flex-1 overflow-y-auto">
+  <header class="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10">
+    <h1 class="text-base font-semibold text-gray-900">Configuration</h1>
+    <p class="text-xs text-gray-400 mt-0.5">Paramètres du monitoring DAB+</p>
+  </header>
+
+  <div class="p-6 max-w-3xl">
+
+    <!-- ── 1. SCAN ──────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        1. Scan Band III
+      </div>
+
+      <p class="text-xs text-gray-500 mb-4">Scanne les 38 canaux DAB+ (5A → 13F) pour détecter les multiplex disponibles. Durée ~5 minutes.</p>
+
+      <div class="flex items-center gap-3 mb-4">
+        <button id="btn-scan-start" onclick="startScan()" class="btn-primary">🔍 Lancer le scan</button>
+        <button id="btn-scan-stop"  onclick="stopScan()"  class="btn-danger" style="display:none">⏹ Arrêter</button>
+        <span class="text-xs text-gray-400" id="scan-status-text">—</span>
+      </div>
+
+      <!-- Barre de progression -->
+      <div id="scan-progress-section" style="display:none" class="mb-4">
+        <div class="flex justify-between text-xs text-gray-500 mb-1">
+          <span>Canal : <span class="font-mono font-semibold text-blue-600" id="scan-current">—</span></span>
+          <span id="scan-progress-text">0 / 38</span>
+        </div>
+        <div class="h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div id="scan-progress-bar" class="h-full bg-blue-500 rounded-full w-0"></div>
+        </div>
+      </div>
+
+      <!-- Résultats -->
+      <div id="scan-results-container">
+        <div id="scan-no-results" class="text-xs text-gray-400 text-center py-4">Aucun résultat — lancez un scan.</div>
+        <div id="scan-results-list"></div>
+      </div>
+    </div>
+
+    <!-- ── 2. CANAL ACTIF ────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+        2. Canal actif
+      </div>
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <div class="field-label">Canal</div>
+          <input type="text" id="cfg-channel" class="field-input" placeholder="9A">
+        </div>
+        <div>
+          <div class="field-label">Fréquence (MHz)</div>
+          <input type="number" id="cfg-frequency" class="field-input" step="0.001" placeholder="202.928">
+        </div>
+        <div>
+          <div class="field-label">Nom de l'ensemble</div>
+          <input type="text" id="cfg-ensemble-name" class="field-input" placeholder="Mon Multiplex DAB+">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 3. RTL-SDR ────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        3. RTL-SDR
+      </div>
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <div class="field-label">Gain (dB, -1 = auto)</div>
+          <input type="number" id="cfg-gain" class="field-input" step="0.1" placeholder="-1">
+        </div>
+        <div>
+          <div class="field-label">Correction PPM</div>
+          <input type="number" id="cfg-ppm" class="field-input" placeholder="0">
+        </div>
+        <div>
+          <div class="field-label">Index dongle</div>
+          <input type="number" id="cfg-device-index" class="field-input" placeholder="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 4. SURVEILLANCE ───────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+        4. Surveillance & Alertes
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="field-label">Seuil SNR minimum (dB)</div>
+          <input type="number" id="cfg-snr-threshold" class="field-input" step="0.1" placeholder="5.0">
+        </div>
+        <div>
+          <div class="field-label">Seuil FIC quality minimum (%)</div>
+          <input type="number" id="cfg-fic-threshold" class="field-input" placeholder="80">
+        </div>
+        <div>
+          <div class="field-label">Seuil silence audio (dBFS)</div>
+          <input type="number" id="cfg-silence-threshold" class="field-input" step="0.1" placeholder="-60.0">
+        </div>
+        <div>
+          <div class="field-label">Durée silence avant alerte (s)</div>
+          <input type="number" id="cfg-silence-duration" class="field-input" placeholder="30">
+        </div>
+        <div>
+          <div class="field-label">Durée perte service avant alerte (s)</div>
+          <input type="number" id="cfg-service-loss" class="field-input" placeholder="60">
+        </div>
+        <div>
+          <div class="field-label">Cooldown entre alertes email (min)</div>
+          <input type="number" id="cfg-cooldown" class="field-input" placeholder="30">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 5. EMAIL ──────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        5. Alertes email
+      </div>
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <div class="field-label">Expéditeur</div>
+          <input type="email" id="cfg-sender" class="field-input" placeholder="votre@gmail.com">
+        </div>
+        <div>
+          <div class="field-label">Mot de passe application</div>
+          <input type="password" id="cfg-smtp-password" class="field-input" placeholder="••••••••••••••••">
+        </div>
+        <div>
+          <div class="field-label">Serveur SMTP</div>
+          <input type="text" id="cfg-smtp-server" class="field-input" placeholder="smtp.gmail.com">
+        </div>
+        <div>
+          <div class="field-label">Port SMTP</div>
+          <input type="number" id="cfg-smtp-port" class="field-input" placeholder="587">
+        </div>
+        <div class="col-span-2">
+          <div class="field-label">Destinataires (séparés par des virgules)</div>
+          <input type="text" id="cfg-recipients" class="field-input" placeholder="alerte@exemple.com, autre@exemple.com">
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" id="cfg-email-enabled" class="rounded">
+          Alertes email activées
+        </label>
+        <button onclick="testEmail()" class="btn-secondary text-xs">📧 Envoyer un email de test</button>
+        <span id="email-test-result" class="text-xs text-gray-400"></span>
+      </div>
+    </div>
+
+    <!-- ── 6. AUTHENTIFICATION ───────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        6. Authentification
+      </div>
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <div class="field-label">Nom d'utilisateur</div>
+          <input type="text" id="cfg-username" class="field-input" placeholder="admin">
+        </div>
+        <div>
+          <div class="field-label">Nouveau mot de passe</div>
+          <input type="password" id="cfg-new-password" class="field-input" placeholder="Laisser vide pour ne pas changer">
+        </div>
+        <div>
+          <div class="field-label">Confirmer le mot de passe</div>
+          <input type="password" id="cfg-confirm-password" class="field-input" placeholder="Confirmer">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 7. IMPORT / EXPORT ────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-title">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+        7. Import / Export de la configuration
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="/api/config/export" class="btn-secondary">⬇ Exporter la config</a>
+        <label class="btn-secondary cursor-pointer">
+          ⬆ Importer une config
+          <input type="file" id="cfg-import-file" accept=".json" style="display:none" onchange="importConfig(this)">
+        </label>
+        <span class="text-xs text-gray-400">Fichier JSON uniquement</span>
+      </div>
+    </div>
+
+    <!-- Boutons de sauvegarde -->
+    <div class="flex items-center justify-between pb-8">
+      <button onclick="saveConfig()" class="btn-primary px-8">💾 Enregistrer la configuration</button>
+      <button onclick="restartMonitor()" class="btn-secondary">🔄 Redémarrer le monitoring</button>
+    </div>
+
+  </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// Chargement de la config
+// ═══════════════════════════════════════════════
+let currentConfig = {};
+let scanEventSource = null;
+
+async function loadConfig() {
+  try {
+    const r = await fetch('/api/config/full');
+    const c = await r.json();
+    currentConfig = c;
+
+    // Canal
+    document.getElementById('cfg-channel').value       = c.ensemble?.channel || '';
+    document.getElementById('cfg-frequency').value     = c.ensemble?.frequency_mhz || '';
+    document.getElementById('cfg-ensemble-name').value = c.ensemble?.name || '';
+
+    // RTL-SDR
+    document.getElementById('cfg-gain').value         = c.rtl_sdr?.gain ?? -1;
+    document.getElementById('cfg-ppm').value          = c.rtl_sdr?.ppm_error ?? 0;
+    document.getElementById('cfg-device-index').value = c.rtl_sdr?.device_index ?? 0;
+
+    // Surveillance
+    document.getElementById('cfg-snr-threshold').value   = c.monitoring?.snr_threshold ?? 5.0;
+    document.getElementById('cfg-fic-threshold').value   = c.monitoring?.fic_quality_threshold ?? 80;
+    document.getElementById('cfg-silence-threshold').value = c.monitoring?.audio_silence_threshold ?? -60.0;
+    document.getElementById('cfg-silence-duration').value  = c.monitoring?.audio_silence_duration ?? 30;
+    document.getElementById('cfg-service-loss').value     = c.monitoring?.service_loss_duration ?? 60;
+    document.getElementById('cfg-cooldown').value         = c.email?.cooldown_minutes ?? 30;
+
+    // Email
+    document.getElementById('cfg-sender').value       = c.email?.sender_email || '';
+    document.getElementById('cfg-smtp-server').value  = c.email?.smtp_server || '';
+    document.getElementById('cfg-smtp-port').value    = c.email?.smtp_port || 587;
+    document.getElementById('cfg-recipients').value   = (c.email?.recipient_emails || []).join(', ');
+    document.getElementById('cfg-email-enabled').checked = c.email?.enabled !== false;
+
+    // Auth
+    document.getElementById('cfg-username').value = c.auth?.username || 'admin';
+
+    // Sidebar
+    document.getElementById('sidebar-ensemble').textContent = c.ensemble?.name || '—';
+    document.getElementById('sidebar-channel').textContent  = c.ensemble?.channel || '—';
+
+    // Charger résultats scan précédents
+    loadScanResults();
+
+  } catch(e) {
+    showToast('Erreur chargement config', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Sauvegarde
+// ═══════════════════════════════════════════════
+async function saveConfig() {
+  // Validation mot de passe
+  const newPwd  = document.getElementById('cfg-new-password').value;
+  const confPwd = document.getElementById('cfg-confirm-password').value;
+  if (newPwd && newPwd !== confPwd) {
+    showToast('Les mots de passe ne correspondent pas', 'error');
+    return;
+  }
+
+  const recipients = document.getElementById('cfg-recipients').value
+    .split(',').map(s => s.trim()).filter(Boolean);
+
+  const payload = {
+    ensemble: {
+      channel:       document.getElementById('cfg-channel').value.trim().toUpperCase(),
+      frequency_mhz: parseFloat(document.getElementById('cfg-frequency').value),
+      name:          document.getElementById('cfg-ensemble-name').value.trim(),
+    },
+    rtl_sdr: {
+      gain:         parseFloat(document.getElementById('cfg-gain').value),
+      ppm_error:    parseInt(document.getElementById('cfg-ppm').value),
+      device_index: parseInt(document.getElementById('cfg-device-index').value),
+    },
+    monitoring: {
+      snr_threshold:            parseFloat(document.getElementById('cfg-snr-threshold').value),
+      fic_quality_threshold:    parseInt(document.getElementById('cfg-fic-threshold').value),
+      audio_silence_threshold:  parseFloat(document.getElementById('cfg-silence-threshold').value),
+      audio_silence_duration:   parseInt(document.getElementById('cfg-silence-duration').value),
+      service_loss_duration:    parseInt(document.getElementById('cfg-service-loss').value),
+    },
+    email: {
+      sender_email:     document.getElementById('cfg-sender').value.trim(),
+      sender_password:  document.getElementById('cfg-smtp-password').value || '********',
+      smtp_server:      document.getElementById('cfg-smtp-server').value.trim(),
+      smtp_port:        parseInt(document.getElementById('cfg-smtp-port').value),
+      recipient_emails: recipients,
+      enabled:          document.getElementById('cfg-email-enabled').checked,
+      cooldown_minutes: parseInt(document.getElementById('cfg-cooldown').value),
+    },
+    auth: {
+      username: document.getElementById('cfg-username').value.trim(),
+    }
+  };
+
+  if (newPwd) payload.auth.new_password = newPwd;
+
+  try {
+    const r = await fetch('/api/config/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.status === 'success') showToast('Configuration enregistrée', 'success');
+    else showToast('Erreur : ' + d.message, 'error');
+  } catch(e) {
+    showToast('Erreur réseau', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Scan
+// ═══════════════════════════════════════════════
+async function startScan() {
+  document.getElementById('btn-scan-start').style.display = 'none';
+  document.getElementById('btn-scan-stop').style.display  = 'inline-block';
+  document.getElementById('scan-progress-section').style.display = 'block';
+  document.getElementById('scan-results-list').innerHTML = '';
+  document.getElementById('scan-no-results').style.display = 'none';
+  document.getElementById('scan-status-text').textContent = 'Scan en cours…';
+
+  await fetch('/api/scan/start', {method: 'POST'});
+
+  if (scanEventSource) scanEventSource.close();
+  scanEventSource = new EventSource('/api/scan/stream');
+  scanEventSource.onmessage = e => {
+    try { updateScanProgress(JSON.parse(e.data)); } catch(_) {}
+  };
+}
+
+function stopScan() {
+  fetch('/api/scan/stop', {method: 'POST'});
+  if (scanEventSource) { scanEventSource.close(); scanEventSource = null; }
+  resetScanUI();
+}
+
+function resetScanUI() {
+  document.getElementById('btn-scan-start').style.display = 'inline-block';
+  document.getElementById('btn-scan-stop').style.display  = 'none';
+}
+
+function updateScanProgress(status) {
+  const pct = status.progress_pct || 0;
+  document.getElementById('scan-progress-bar').style.width = pct + '%';
+  document.getElementById('scan-current').textContent = status.current_channel || '—';
+  document.getElementById('scan-progress-text').textContent = `${status.current_index} / ${status.total_channels}`;
+  document.getElementById('scan-status-text').textContent = `${status.results_count} multiplex détecté(s)`;
+
+  if (status.results?.length) renderScanResults(status.results);
+
+  if (!status.running && status.current_index > 0) {
+    resetScanUI();
+    document.getElementById('scan-current').textContent = 'Terminé';
+    if (scanEventSource) { scanEventSource.close(); scanEventSource = null; }
+  }
+}
+
+async function loadScanResults() {
+  try {
+    const r = await fetch('/api/scan/results');
+    const results = await r.json();
+    if (results.length) {
+      document.getElementById('scan-no-results').style.display = 'none';
+      renderScanResults(results);
+    }
+  } catch(_) {}
+}
+
+function renderScanResults(results) {
+  const list = document.getElementById('scan-results-list');
+  const currentChannel = document.getElementById('cfg-channel').value;
+  list.innerHTML = '';
+  results.forEach(r => {
+    const div = document.createElement('div');
+    const isActive = r.channel === currentChannel;
+    div.className = 'scan-result' + (isActive ? ' selected' : '');
+    div.onclick = () => selectChannel(r);
+    div.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;font-weight:700;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:4px;font-family:monospace">${r.channel}</span>
+          <span style="font-size:0.875rem;font-weight:600;color:#111827">${escHtml(r.ensemble_label)}</span>
+          ${isActive ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:4px">Actif</span>' : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:#9ca3af">
+          <span>SNR ${r.snr} dB</span>
+          <span>${r.nb_services} services</span>
+          <span style="font-family:monospace">${r.frequency_mhz} MHz</span>
+        </div>
+      </div>
+      <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+        ${(r.services||[]).map(s=>`<span style="font-size:10px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;padding:1px 6px;border-radius:4px">${escHtml(s)}</span>`).join('')}
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function selectChannel(result) {
+  if (!confirm(`Activer le canal ${result.channel} (${result.ensemble_label}) et redémarrer le monitoring ?`)) return;
+
+  fetch('/api/scan/select', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({channel: result.channel})
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'success') {
+      document.getElementById('cfg-channel').value   = result.channel;
+      document.getElementById('cfg-frequency').value = result.frequency_mhz;
+      document.getElementById('cfg-ensemble-name').value = result.ensemble_label;
+      document.getElementById('sidebar-channel').textContent = result.channel;
+      showToast(`Canal ${result.channel} activé — monitoring redémarré`, 'success');
+      // Recharger les résultats pour mettre à jour le badge Actif
+      loadScanResults();
+    } else {
+      showToast('Erreur : ' + (d.message || 'inconnue'), 'error');
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// Email test
+// ═══════════════════════════════════════════════
+async function testEmail() {
+  const el = document.getElementById('email-test-result');
+  el.textContent = 'Envoi…';
+
+  // Lire les valeurs directement depuis le formulaire
+  const recipients = document.getElementById('cfg-recipients').value
+    .split(',').map(s => s.trim()).filter(Boolean);
+
+  const payload = {
+    test_only: true,
+    sender_email:    document.getElementById('cfg-sender').value.trim(),
+    sender_password: document.getElementById('cfg-smtp-password').value,
+    smtp_server:     document.getElementById('cfg-smtp-server').value.trim(),
+    smtp_port:       parseInt(document.getElementById('cfg-smtp-port').value),
+    recipient_emails: recipients,
+  };
+
+  try {
+    const r = await fetch('/api/email/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    el.textContent = d.status === 'success' ? '✅ Email envoyé' : '❌ ' + d.message;
+  } catch(e) {
+    el.textContent = '❌ Erreur réseau';
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Redémarrage
+// ═══════════════════════════════════════════════
+async function restartMonitor() {
+  if (!confirm('Redémarrer le monitoring DAB+ ?')) return;
+  try {
+    const r = await fetch('/api/restart', {method: 'POST'});
+    const d = await r.json();
+    showToast(d.status === 'success' ? 'Monitoring redémarré' : 'Erreur : ' + d.message,
+              d.status === 'success' ? 'success' : 'error');
+  } catch(e) {
+    showToast('Erreur réseau', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Import / Export
+// ═══════════════════════════════════════════════
+async function importConfig(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm(`Importer la configuration depuis "${file.name}" ? La config actuelle sera remplacée.`)) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const r = await fetch('/api/config/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const d = await r.json();
+    if (d.status === 'success') {
+      showToast('Configuration importée', 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast('Erreur import : ' + d.message, 'error');
+    }
+  } catch(e) {
+    showToast('Fichier invalide', 'error');
+  }
+  input.value = '';
+}
+
+// ═══════════════════════════════════════════════
+// Utils
+// ═══════════════════════════════════════════════
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Init
+loadConfig();
+</script>
+</body>
+</html>
