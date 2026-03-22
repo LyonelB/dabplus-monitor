@@ -518,6 +518,8 @@ function selectService(sid) {
 
 
 
+
+
   // Mettre à jour les classes active
   document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
   event?.currentTarget?.classList.add('active');
@@ -629,30 +631,32 @@ function togglePlay() {
   }
 }
 
-function startPlay() {
+async function startPlay() {
   const btn = document.getElementById('play-button');
   btn.disabled = true;
-
-  fetch('/api/service/switch', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({sid: selectedSid})
-  }).then(r => r.json()).then(() => {
+  try {
+    // Switch le service et attendre la confirmation avant de lancer le player
+    await fetch('/api/service/switch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sid: selectedSid})
+    });
+    // Attendre que ffmpeg alimente Icecast
+    await new Promise(r => setTimeout(r, 1500));
     const player = document.getElementById('audio-player');
-    // Lire depuis Icecast directement (évite de saturer Flask)
-    player.src = 'http://' + window.location.hostname + ':8000/dabmonitor?' + Date.now();
+    player.src = '/stream.mp3?' + Date.now();
     player.volume = document.getElementById('volume-slider').value / 100;
     player.play().catch(e => console.log('Play:', e));
     isPlaying = true;
     document.getElementById('play-icon').innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
     btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
-    btn.disabled = false;
-    // Mettre à jour le bouton Écouter dans le détail
     const btnStream = document.getElementById('btn-stream');
     if (btnStream) { btnStream.textContent = '⏹ Stop'; btnStream.onclick = stopPlay; }
-  }).catch(() => { btn.disabled = false; });
+  } catch(e) {
+    console.log('startPlay error:', e);
+  }
+  btn.disabled = false;
 }
-
 function stopPlay() {
   const player = document.getElementById('audio-player');
   player.pause();

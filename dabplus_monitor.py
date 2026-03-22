@@ -671,21 +671,14 @@ class DABPlusMonitor:
 
 
     def _kill_all_streaming(self):
-        """Tue tous les processus ffmpeg streaming trackés par PGID."""
-        import os, signal, time
-        procs = getattr(self, '_stream_procs', [])
-        if self.stream_process:
-            procs.append(self.stream_process)
-        for p in procs:
-            try:
-                pgid = os.getpgid(p.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except Exception:
-                try: p.kill()
-                except Exception: pass
+        """Tue TOUS les ffmpeg streaming vers Icecast sans exception."""
+        import subprocess as sp, time
+        sp.run(['pkill', '-9', '-f', 'icecast://'], capture_output=True)
+        sp.run(['pkill', '-9', '-f', 'content_type audio/mpeg'], capture_output=True)
+        self._stream_pids  = []
         self._stream_procs = []
         self.stream_process = None
-        time.sleep(0.3)
+        time.sleep(0.5)
 
     def _start_streaming(self):
         """
@@ -711,7 +704,8 @@ class DABPlusMonitor:
 
         logger.info(f"Streaming SID {self.active_sid} → Icecast")
 
-        while self.running:
+        sid_at_start = self.active_sid
+        while self.running and self.active_sid == sid_at_start:
             try:
                 self.stream_process = subprocess.Popen(
                     cmd,
@@ -723,9 +717,11 @@ class DABPlusMonitor:
                     self._stream_pids = []
                 self._stream_pids.append(self.stream_process.pid)
                 self.stream_process.wait()
+                if self.active_sid != sid_at_start:
+                    break
             except Exception as e:
                 logger.error(f"Erreur streaming : {e}")
-            if self.running:
+            if self.running and self.active_sid == sid_at_start:
                 time.sleep(3)
 
     def switch_service(self, sid: str):
