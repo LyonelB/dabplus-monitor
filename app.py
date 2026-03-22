@@ -371,22 +371,25 @@ def save_config():
 @app.route('/stream.mp3')
 @limiter.exempt
 def proxy_stream():
-    """Proxy vers welle-cli /mp3/<SID> pour le service actif."""
-    sid = monitor.active_sid if monitor else ''
-    if not sid:
-        return '', 503
-
-    welle_url = f"http://localhost:7979/mp3/{sid}"
+    """Redirige vers le flux Icecast (évite de saturer welle-cli)."""
+    import re
+    icecast_url = 'http://localhost:8000/dabmonitor'
+    if monitor:
+        cfg_url = monitor.stream_cfg.get('icecast_url', '')
+        if cfg_url.startswith('icecast://'):
+            m = re.search(r'@([^/]+)(/.+)$', cfg_url)
+            if m:
+                icecast_url = f"http://{m.group(1)}{m.group(2)}"
 
     def generate():
         try:
-            with requests.get(welle_url, stream=True, timeout=5) as r:
+            with requests.get(icecast_url, stream=True, timeout=10) as r:
                 r.raise_for_status()
                 for chunk in r.iter_content(chunk_size=4096):
                     if chunk:
                         yield chunk
         except Exception as e:
-            logger.error(f"Erreur proxy stream : {e}")
+            logger.error(f"Erreur proxy stream Icecast : {e}")
 
     return app.response_class(
         generate(),
@@ -397,6 +400,7 @@ def proxy_stream():
             'X-Accel-Buffering': 'no',
         }
     )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Démarrage

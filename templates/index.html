@@ -215,7 +215,7 @@
             </svg>
             <input type="range" id="volume-slider" min="0" max="100" value="80" style="width:70px;height:4px;cursor:pointer">
             <span id="volume-value" style="font-size:11px;color:#6b7280;width:28px">80%</span>
-            <a href="/stream.mp3" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;margin-left:4px">Externe ↗</a>
+            <a href="/stream.mp3" target="_blank" id="link-externe" style="font-size:11px;color:#3b82f6;text-decoration:none;margin-left:4px">Externe ↗</a>
           </div>
           <audio id="audio-player" preload="none"></audio>
         </div>
@@ -639,7 +639,8 @@ function startPlay() {
     body: JSON.stringify({sid: selectedSid})
   }).then(r => r.json()).then(() => {
     const player = document.getElementById('audio-player');
-    player.src = '/stream.mp3?' + Date.now();
+    // Lire depuis Icecast directement (évite de saturer Flask)
+    player.src = 'http://' + window.location.hostname + ':8000/dabmonitor?' + Date.now();
     player.volume = document.getElementById('volume-slider').value / 100;
     player.play().catch(e => console.log('Play:', e));
     isPlaying = true;
