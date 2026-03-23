@@ -384,12 +384,13 @@ def proxy_stream():
     def generate():
         try:
             with requests.get(icecast_url, stream=True, timeout=10) as r:
-                r.raise_for_status()
+                if r.status_code != 200:
+                    return
                 for chunk in r.iter_content(chunk_size=4096):
                     if chunk:
                         yield chunk
         except Exception as e:
-            logger.error(f"Erreur proxy stream Icecast : {e}")
+            logger.debug(f"Proxy stream Icecast : {e}")
 
     return app.response_class(
         generate(),
