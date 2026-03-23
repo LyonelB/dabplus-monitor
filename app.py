@@ -52,7 +52,7 @@ def generate_stats_sse():
             if monitor:
                 data = monitor.get_stats()
                 yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(0.5)   # 2 Hz — suffisant pour DAB+
+            time.sleep(0.1)   # 10 Hz — pour VU-mètre fluide
         except GeneratorExit:
             break
         except Exception as e:
