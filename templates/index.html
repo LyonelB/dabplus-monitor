@@ -182,7 +182,7 @@
               <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.08s linear"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.9s ease-in-out"></div>
             </div>
           </div>
           <div>
@@ -190,7 +190,7 @@
               <span>Droite</span><span id="detail-audio-r">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.08s linear"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.9s ease-in-out"></div>
             </div>
           </div>
           <!-- Niveaux captés (welle-cli) -->
@@ -210,6 +210,15 @@
               style="width:36px;height:36px;border-radius:50%;border:2px solid #d1d5db;background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
               <svg id="play-icon" style="width:16px;height:16px" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             </button>
+            <!-- Barre de chargement Icecast -->
+            <div id="load-bar-wrap" style="display:none;flex:1;max-width:120px">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:#6b7280;margin-bottom:2px">
+                <span>Chargement</span><span id="load-pct">0 %</span>
+              </div>
+              <div style="height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden">
+                <div id="load-bar" style="height:100%;background:#2563eb;border-radius:2px;width:0%;transition:width 0.2s ease"></div>
+              </div>
+            </div>
             <svg style="width:14px;height:14px;color:#9ca3af;flex-shrink:0" fill="currentColor" viewBox="0 0 24 24">
               <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
             </svg>
@@ -507,6 +516,8 @@ function serviceDotClass(svc) {
 // ═══════════════════════════════════════════════════════════════
 // Sélection service
 // ═══════════════════════════════════════════════════════════════
+let loadingForSid = null;
+
 function selectService(sid) {
   // Couper le player si on change de service
   if (selectedSid && selectedSid !== sid && isPlaying) {
@@ -516,10 +527,6 @@ function selectService(sid) {
   const svc   = servicesData[sid];
   if (!svc) return;
 
-
-
-
-
   // Mettre à jour les classes active
   document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
   event?.currentTarget?.classList.add('active');
@@ -527,6 +534,75 @@ function selectService(sid) {
   // Afficher le bloc détail
   document.getElementById('service-detail').style.display = 'block';
   updateServiceDetail(svc);
+
+  // Pré-charger Icecast en arrière-plan
+  preloadStream(sid);
+}
+
+function setLoadBar(pct, label) {
+  const wrap  = document.getElementById('load-bar-wrap');
+  const bar   = document.getElementById('load-bar');
+  const pctEl = document.getElementById('load-pct');
+  if (!wrap) return;
+  if (pct < 0 || pct >= 100) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  if (bar)   bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = label || pct + ' %';
+}
+
+function preloadStream(sid) {
+  loadingForSid = sid;
+
+  // Griser le bouton, barre à 0%
+  const btn = document.getElementById('play-button');
+  btn.disabled = true;
+  btn.style.borderColor = '#d1d5db';
+  btn.classList.remove('border-blue-600', 'text-blue-600', 'bg-blue-50');
+  document.getElementById('play-icon').innerHTML = '<path d="M8 5v14l11-7z"/>';
+  setLoadBar(0);
+
+  // Lancer le switch côté serveur
+  fetch('/api/service/switch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sid: sid})
+  }).catch(() => {});
+
+  // Poller /stream.mp3 toutes les 200ms, max 6s
+  const maxAttempts = 30;
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    if (loadingForSid !== sid) { clearInterval(poll); setLoadBar(-1); return; }
+    attempts++;
+    const pct = Math.min(95, Math.round(attempts / maxAttempts * 100));
+    setLoadBar(pct);
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 300);
+      const r    = await fetch('/stream.mp3?' + Date.now(), { signal: ctrl.signal });
+      clearTimeout(tid);
+      const ct = r.headers.get('content-type') || '';
+      r.body?.cancel();
+      if (r.ok && ct.includes('audio')) {
+        clearInterval(poll);
+        if (loadingForSid !== sid) return;
+        setLoadBar(100, '✓ Prêt');
+        setTimeout(() => setLoadBar(-1), 1200);
+        btn.disabled = false;
+        btn.style.borderColor = '#2563eb';
+        btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
+        return;
+      }
+    } catch(e) {}
+    if (attempts >= maxAttempts) {
+      clearInterval(poll);
+      setLoadBar(-1);
+      btn.disabled = false;
+    }
+  }, 200);
 }
 
 function updateServiceDetail(svc) {
@@ -631,32 +707,23 @@ function togglePlay() {
   }
 }
 
-async function startPlay() {
-  const btn = document.getElementById('play-button');
-  btn.disabled = true;
-  try {
-    // Switch le service et attendre la confirmation avant de lancer le player
-    await fetch('/api/service/switch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({sid: selectedSid})
-    });
-    // Attendre que ffmpeg alimente Icecast
-    await new Promise(r => setTimeout(r, 500));
-    const player = document.getElementById('audio-player');
-    player.src = '/stream.mp3?' + Date.now();
-    player.volume = document.getElementById('volume-slider').value / 100;
-    player.play().catch(e => console.log('Play:', e));
-    isPlaying = true;
-    document.getElementById('play-icon').innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
-    btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
-    const btnStream = document.getElementById('btn-stream');
-    if (btnStream) { btnStream.textContent = '⏹ Stop'; btnStream.onclick = stopPlay; }
-  } catch(e) {
-    console.log('startPlay error:', e);
-  }
+function startPlay() {
+  // Flux déjà prêt (préchargé dans preloadStream) — démarrage immédiat
+  const btn    = document.getElementById('play-button');
+  const player = document.getElementById('audio-player');
+  player.src   = '/stream.mp3?' + Date.now();
+  player.volume = document.getElementById('volume-slider').value / 100;
+  player.play().catch(e => console.log('Play:', e));
+  isPlaying = true;
+  document.getElementById('play-icon').innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
+  btn.style.borderColor = '#2563eb';
+  btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
   btn.disabled = false;
+  setLoadBar(-1);
+  const btnStream = document.getElementById('btn-stream');
+  if (btnStream) { btnStream.textContent = '⏹ Stop'; btnStream.onclick = stopPlay; }
 }
+
 function stopPlay() {
   const player = document.getElementById('audio-player');
   player.pause();
