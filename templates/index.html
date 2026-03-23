@@ -642,7 +642,7 @@ async function startPlay() {
       body: JSON.stringify({sid: selectedSid})
     });
     // Attendre que ffmpeg alimente Icecast
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
     const player = document.getElementById('audio-player');
     player.src = '/stream.mp3?' + Date.now();
     player.volume = document.getElementById('volume-slider').value / 100;
