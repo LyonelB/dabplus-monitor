@@ -211,9 +211,10 @@
               <svg id="play-icon" style="width:16px;height:16px" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             </button>
             <!-- Barre de chargement Icecast -->
-            <div id="load-bar-wrap" style="display:none;flex:1;max-width:120px">
+            <div id="load-bar-wrap" style="display:none;flex:1;max-width:100px">
               <div style="display:flex;justify-content:space-between;font-size:10px;color:#6b7280;margin-bottom:2px">
-                <span>Chargement</span><span id="load-pct">0 %</span>
+                <span style="font-size:9px">Chargement</span>
+                <span id="load-pct" style="font-size:9px">0 %</span>
               </div>
               <div style="height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden">
                 <div id="load-bar" style="height:100%;background:#2563eb;border-radius:2px;width:0%;transition:width 0.2s ease"></div>
@@ -519,23 +520,14 @@ function serviceDotClass(svc) {
 let loadingForSid = null;
 
 function selectService(sid) {
-  // Couper le player si on change de service
-  if (selectedSid && selectedSid !== sid && isPlaying) {
-    stopPlay();
-  }
+  if (selectedSid && selectedSid !== sid && isPlaying) stopPlay();
   selectedSid = sid;
-  const svc   = servicesData[sid];
+  const svc = servicesData[sid];
   if (!svc) return;
-
-  // Mettre à jour les classes active
   document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
   event?.currentTarget?.classList.add('active');
-
-  // Afficher le bloc détail
   document.getElementById('service-detail').style.display = 'block';
   updateServiceDetail(svc);
-
-  // Pré-charger Icecast en arrière-plan
   preloadStream(sid);
 }
 
@@ -544,65 +536,47 @@ function setLoadBar(pct, label) {
   const bar   = document.getElementById('load-bar');
   const pctEl = document.getElementById('load-pct');
   if (!wrap) return;
-  if (pct < 0 || pct >= 100) {
-    wrap.style.display = 'none';
-    return;
-  }
+  if (pct < 0) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
-  if (bar)   bar.style.width = pct + '%';
-  if (pctEl) pctEl.textContent = label || pct + ' %';
+  if (bar)   bar.style.width = Math.min(100,pct) + '%';
+  if (pctEl) pctEl.textContent = label || Math.min(100,pct) + ' %';
 }
 
 function preloadStream(sid) {
   loadingForSid = sid;
-
-  // Griser le bouton, barre à 0%
   const btn = document.getElementById('play-button');
   btn.disabled = true;
-  btn.style.borderColor = '#d1d5db';
-  btn.classList.remove('border-blue-600', 'text-blue-600', 'bg-blue-50');
+  btn.style.cssText = 'width:36px;height:36px;border-radius:50%;border:2px solid #d1d5db;background:white;display:flex;align-items:center;justify-content:center;cursor:not-allowed;flex-shrink:0';
   document.getElementById('play-icon').innerHTML = '<path d="M8 5v14l11-7z"/>';
-  setLoadBar(0);
-
-  // Lancer le switch côté serveur
+  setLoadBar(2);
   fetch('/api/service/switch', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({sid: sid})
-  }).catch(() => {});
-
-  // Poller /stream.mp3 toutes les 200ms, max 6s
-  const maxAttempts = 30;
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({sid})
+  }).catch(()=>{});
+  const maxAttempts = 8;
   let attempts = 0;
   const poll = setInterval(async () => {
     if (loadingForSid !== sid) { clearInterval(poll); setLoadBar(-1); return; }
     attempts++;
-    const pct = Math.min(95, Math.round(attempts / maxAttempts * 100));
-    setLoadBar(pct);
+    setLoadBar(Math.min(92, Math.round(attempts/maxAttempts*100)));
     try {
       const ctrl = new AbortController();
-      const tid  = setTimeout(() => ctrl.abort(), 300);
-      const r    = await fetch('/stream.mp3?' + Date.now(), { signal: ctrl.signal });
-      clearTimeout(tid);
+      setTimeout(() => ctrl.abort(), 800);
+      const r = await fetch('/stream.mp3?chk=' + Date.now(), { signal: ctrl.signal });
       const ct = r.headers.get('content-type') || '';
       r.body?.cancel();
       if (r.ok && ct.includes('audio')) {
         clearInterval(poll);
         if (loadingForSid !== sid) return;
         setLoadBar(100, '✓ Prêt');
-        setTimeout(() => setLoadBar(-1), 1200);
+        setTimeout(() => setLoadBar(-1), 1500);
         btn.disabled = false;
-        btn.style.borderColor = '#2563eb';
-        btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
+        btn.style.cssText = 'width:36px;height:36px;border-radius:50%;border:2px solid #2563eb;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0';
         return;
       }
     } catch(e) {}
-    if (attempts >= maxAttempts) {
-      clearInterval(poll);
-      setLoadBar(-1);
-      btn.disabled = false;
-    }
-  }, 200);
+    if (attempts >= maxAttempts) { clearInterval(poll); setLoadBar(-1); btn.disabled=false; }
+  }, 1000);
 }
 
 function updateServiceDetail(svc) {
@@ -708,7 +682,6 @@ function togglePlay() {
 }
 
 function startPlay() {
-  // Flux déjà prêt (préchargé dans preloadStream) — démarrage immédiat
   const btn    = document.getElementById('play-button');
   const player = document.getElementById('audio-player');
   player.src   = '/stream.mp3?' + Date.now();
@@ -716,8 +689,7 @@ function startPlay() {
   player.play().catch(e => console.log('Play:', e));
   isPlaying = true;
   document.getElementById('play-icon').innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
-  btn.style.borderColor = '#2563eb';
-  btn.classList.add('border-blue-600', 'text-blue-600', 'bg-blue-50');
+  btn.style.cssText = 'width:36px;height:36px;border-radius:50%;border:2px solid #2563eb;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0';
   btn.disabled = false;
   setLoadBar(-1);
   const btnStream = document.getElementById('btn-stream');

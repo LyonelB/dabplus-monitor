@@ -381,10 +381,20 @@ def proxy_stream():
             if m:
                 icecast_url = f"http://{m.group(1)}{m.group(2)}"
 
+    # Vérifier qu'Icecast a un flux actif (GET rapide)
+    try:
+        test = requests.get(icecast_url, stream=True, timeout=2)
+        ct = test.headers.get('content-type', '')
+        test.close()
+        if 'audio' not in ct:
+            return '', 503
+    except Exception:
+        return '', 503
+
     def generate():
         try:
             with requests.get(icecast_url, stream=True, timeout=10) as r:
-                if r.status_code != 200:
+                if 'audio' not in r.headers.get('content-type', ''):
                     return
                 for chunk in r.iter_content(chunk_size=4096):
                     if chunk:
