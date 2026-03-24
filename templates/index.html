@@ -822,6 +822,16 @@ function escHtml(s) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Gestion visibilité onglet — libère les threads Gunicorn quand l'onglet est caché
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (statsEventSource) { statsEventSource.close(); statsEventSource = null; }
+    if (isPlaying) stopPlay();
+  } else {
+    connectStats();
+  }
+});
+
 // Init
 // ═══════════════════════════════════════════════════════════════
 connectStats();
