@@ -675,6 +675,8 @@ class DABPlusMonitor:
         import subprocess as sp, time
         sp.run(['pkill', '-9', '-f', 'icecast://'], capture_output=True)
         sp.run(['pkill', '-9', '-f', 'content_type audio/mpeg'], capture_output=True)
+        # Attendre qu'Icecast libère le mount
+        time.sleep(1.5)
         self._stream_pids  = []
         self._stream_procs = []
         self.stream_process = None
