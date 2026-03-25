@@ -466,6 +466,7 @@ class DABPlusMonitor:
                 self._check_ensemble_alerts()
                 self._check_service_alerts()
                 self._update_uptime()
+                self._watchdog_system()
             except Exception as e:
                 logger.error(f"Watchdog erreur : {e}")
             time.sleep(1)
@@ -748,6 +749,30 @@ class DABPlusMonitor:
     # ═══════════════════════════════════════════════════════════════════════
     # Données exposées à l'API Flask
     # ═══════════════════════════════════════════════════════════════════════
+
+    def _watchdog_system(self):
+        """Vérifie que welle-cli répond et relance si nécessaire."""
+        import requests as req
+        try:
+            r = req.get(f"{self.welle_url}/mux.json", timeout=3)
+            if r.status_code != 200:
+                raise Exception("welle-cli ne répond pas")
+        except Exception as e:
+            logger.warning(f"Watchdog : welle-cli KO ({e}) — relance")
+            try:
+                if self.welle_process:
+                    self.welle_process.kill()
+            except Exception:
+                pass
+            import os
+            os.system("pkill -9 welle-cli 2>/dev/null")
+            time.sleep(2)
+            t = threading.Thread(target=self._launch_welle_cli, daemon=True)
+            t.start()
+            if self._wait_for_welle():
+                logger.info("Watchdog : welle-cli relancé")
+            else:
+                logger.error("Watchdog : welle-cli ne répond toujours pas")
 
     def get_uptime_stats(self) -> list:
         """Retourne les stats de présence des services (24h)."""
