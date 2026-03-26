@@ -432,6 +432,30 @@ def test_email():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/welle/carousel/pin/<sid>', methods=['POST'])
+@limiter.exempt
+@csrf.exempt
+def welle_carousel_pin(sid):
+    """Proxy vers POST /carousel/pin/<sid> de welle-monitor.
+    Force welle-cli à décoder immédiatement le service demandé
+    sans attendre la rotation du carousel — réduit le délai de lancement du player.
+    Endpoint spécifique au fork welle-monitor ; retourne 503 si non disponible."""
+    if not monitor:
+        return jsonify({'status': 'error', 'message': 'Monitor non initialisé'}), 503
+    try:
+        welle_url = monitor.get_welle_url()
+        r = requests.post(f"{welle_url}/carousel/pin/{sid}", timeout=2)
+        if r.status_code == 200:
+            return jsonify({'status': 'pinned', 'sid': sid})
+        elif r.status_code == 404:
+            return jsonify({'status': 'error', 'message': 'sid_not_found'}), 404
+        else:
+            return jsonify({'status': 'error', 'message': 'welle-cli error'}), r.status_code
+    except Exception as e:
+        # welle-cli standard sans le fork — pas grave, le switch fonctionnera quand même
+        logger.debug(f"Carousel pin {sid} : {e}")
+        return jsonify({'status': 'unavailable'}), 503
+
 @app.route('/slide/<sid>')
 @limiter.exempt
 @csrf.exempt

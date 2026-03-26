@@ -600,14 +600,18 @@ function preloadStream(sid, autoPlay) {
   if (bar)   bar.style.width = '0%';
   if (pctEl) pctEl.textContent = '0 %';
 
-  // Lancer le switch côté serveur
+  // 1. Demander à welle-monitor de pinner ce service immédiatement
+  //    (endpoint spécifique au fork — ignoré si welle-cli standard)
+  fetch('/api/welle/carousel/pin/' + sid, {method:'POST'}).catch(()=>{});
+
+  // 2. Lancer le switch côté serveur (ffmpeg → Icecast)
   fetch('/api/service/switch', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({sid})
   }).catch(()=>{});
 
-  // 15 tentatives × 1s = 15s — suffisant pour que ffmpeg redémarre après un switch
-  const maxAttempts = 15;
+  // Polling 500ms au lieu de 1000ms — welle-cli répond plus vite grâce au pin
+  const maxAttempts = 30;  // 30 × 500ms = 15s max (même durée totale)
   let attempts = 0;
   const poll = setInterval(async () => {
     if (loadingForSid !== sid) { clearInterval(poll); return; }
@@ -642,7 +646,7 @@ function preloadStream(sid, autoPlay) {
       if (playerLoading) playerLoading.style.display = 'none';
       if (playerReady)   { playerReady.style.display = 'flex'; playerReady.style.alignItems = 'center'; }
     }
-  }, 1000);
+  }, 500);
 }
 
 let isPlaying = false;

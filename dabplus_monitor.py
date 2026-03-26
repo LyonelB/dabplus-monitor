@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ── Timeouts et constantes ──────────────────────────────────────────────────
 WELLE_STARTUP_TIMEOUT = 15    # secondes pour que welle-cli soit prêt
 POLL_RETRIES          = 3     # tentatives avant de déclarer welle-cli mort
-STARTUP_GRACE_PERIOD  = 90   # secondes après démarrage : pas d'alertes silence/absence
+STARTUP_GRACE_PERIOD  = 180  # secondes après démarrage : pas d'alertes silence/absence
 
 
 class DABPlusMonitor:
@@ -755,6 +755,24 @@ class DABPlusMonitor:
         try:
             logger.info(f"Switch service → {sid}")
             self.active_sid = sid
+
+            # Demander à welle-cli (welle-monitor fork) de décoder immédiatement
+            # ce service sans attendre la rotation du carousel.
+            # Réduit le délai de lancement du player de ~10s à ~2s.
+            try:
+                result = subprocess.run(
+                    ['curl', '-s', '-X', 'POST', '--max-time', '2',
+                     '-o', '/dev/null', '-w', '%{http_code}',
+                     f"{self.welle_url}/carousel/pin/{sid}"],
+                    capture_output=True, text=True, timeout=3
+                )
+                if result.returncode == 0 and result.stdout.strip() == '200':
+                    logger.debug(f"Carousel pin {sid} : OK")
+                else:
+                    logger.debug(f"Carousel pin {sid} : non supporté (welle-cli standard)")
+            except Exception:
+                pass  # welle-cli standard sans le fork — pas grave
+
             self._kill_all_streaming()
             if hasattr(self, '_vu_process') and self._vu_process:
                 try:
@@ -810,16 +828,48 @@ class DABPlusMonitor:
             self._relaunch_lock.release()
             return
 
-        # welle-cli KO — relancer (le lock sera libéré dans _relaunch_welle_and_wait)
-        logger.warning("Watchdog : welle-cli KO — relance")
+        # welle-cli KO — tentative de reset doux via POST /reset (welle-monitor fork)
+        # avant de recourir au pkill brutal qui coupe le streaming Icecast
+        logger.warning("Watchdog : welle-cli KO — tentative reset doux via /reset")
+        reset_ok = False
         try:
-            if self.welle_process:
-                self.welle_process.kill()
-        except Exception:
-            pass
-        os.system("pkill -9 welle-cli 2>/dev/null")
-        time.sleep(2)
-        self._relaunch_welle_and_wait()
+            result = subprocess.run(
+                ['curl', '-s', '-X', 'POST', '--max-time', '3',
+                 '-w', '%{http_code}', '-o', '/dev/null',
+                 f"{self.welle_url}/reset"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip() == '200':
+                logger.info("Watchdog : reset doux envoyé — attente 8s")
+                time.sleep(8)
+                # Vérifier si le reset a suffi
+                check = subprocess.run(
+                    ['curl', '-s', '--max-time', '3',
+                     '-o', '/dev/null', '-w', '%{http_code}',
+                     f"{self.welle_url}/status"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if check.returncode == 0 and check.stdout.strip() == '200':
+                    logger.info("Watchdog : reset doux efficace — welle-cli récupéré")
+                    reset_ok = True
+                    self._relaunch_lock.release()
+                    return
+                else:
+                    logger.warning("Watchdog : reset doux insuffisant — passage au pkill")
+        except Exception as e:
+            logger.debug(f"Watchdog reset doux exception : {e}")
+
+        if not reset_ok:
+            # Relance forcée : pkill + relaunch
+            logger.warning("Watchdog : relance forcée (pkill -9 welle-cli)")
+            try:
+                if self.welle_process:
+                    self.welle_process.kill()
+            except Exception:
+                pass
+            os.system("pkill -9 welle-cli 2>/dev/null")
+            time.sleep(2)
+            self._relaunch_welle_and_wait()
 
     def _relaunch_welle_and_wait(self):
         """Relance welle-cli et attend qu'il soit prêt. Libère _relaunch_lock à la fin."""
