@@ -2,6 +2,7 @@
 """
 Application Flask — DAB+ Monitor
 """
+
 import requests
 from flask import Flask, render_template, Response, jsonify, request, session, redirect, url_for
 from flask_bcrypt import Bcrypt
@@ -27,19 +28,18 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
-
-bcrypt  = Bcrypt(app)
-csrf    = CSRFProtect(app)
+bcrypt = Bcrypt(app)
+csrf = CSRFProtect(app)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"],
     storage_uri="memory://"
 )
-auth = Auth()
 
-monitor    = None
-scanner    = DABScanner()  # charge scan_results.json si disponible
+auth = Auth()
+monitor = None
+scanner = DABScanner()  # charge scan_results.json si disponible
 stats_cache = {'data': None, 'timestamp': 0}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def generate_stats_sse():
             if monitor:
                 data = monitor.get_stats()
                 yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(0.2)   # 5 Hz — bon compromis fluidité/charge
+            time.sleep(0.2)  # 5 Hz — bon compromis fluidité/charge
         except GeneratorExit:
             break
         except Exception as e:
@@ -68,16 +68,15 @@ def generate_stats_sse():
 def login():
     if request.method == 'POST':
         if request.is_json:
-            data     = request.get_json()
+            data = request.get_json()
             username = data.get('username')
             password = data.get('password')
         else:
             username = request.form.get('username')
             password = request.form.get('password')
-
         if auth.verify_credentials(username, password):
             session['logged_in'] = True
-            session['username']  = username
+            session['username'] = username
             if request.is_json:
                 return jsonify({'status': 'success', 'redirect': '/'})
             return redirect('/')
@@ -85,7 +84,6 @@ def login():
             if request.is_json:
                 return jsonify({'status': 'error', 'message': 'Identifiants incorrects'}), 401
             return render_template('login.html', error='Identifiants incorrects')
-
     return render_template('login.html')
 
 @app.route('/logout')
@@ -133,7 +131,7 @@ def get_stats():
         return jsonify(stats_cache['data'])
     if monitor:
         data = monitor.get_stats()
-        stats_cache['data']      = data
+        stats_cache['data'] = data
         stats_cache['timestamp'] = now
         return jsonify(data)
     return jsonify({'error': 'Monitor not initialized'}), 503
@@ -169,7 +167,7 @@ def get_services():
 def switch_service():
     """Change le service streamé vers Icecast."""
     data = request.get_json()
-    sid  = data.get('sid', '')
+    sid = data.get('sid', '')
     if not sid:
         return jsonify({'status': 'error', 'message': 'SID manquant'}), 400
     if monitor:
@@ -185,20 +183,15 @@ def generate_scan_sse():
     """SSE temps réel pour la progression du scan."""
     import queue as _queue
     q = _queue.Queue(maxsize=100)
-
     def cb(status):
         try:
             q.put_nowait(status)
         except Exception:
             pass
-
     if scanner:
         scanner._progress_cb = cb
-
-    # Envoyer l'état initial
     if scanner:
         yield f"data: {json.dumps(scanner.get_status())}\n\n"
-
     while True:
         try:
             status = q.get(timeout=15)
@@ -206,7 +199,6 @@ def generate_scan_sse():
             if not status.get('running') and status.get('current_index', 0) > 0:
                 break
         except Exception:
-            # Heartbeat
             if scanner:
                 yield f"data: {json.dumps(scanner.get_status())}\n\n"
             else:
@@ -219,7 +211,6 @@ def scan_start():
     global monitor, scanner
     if scanner and scanner.running:
         return jsonify({'status': 'error', 'message': 'Scan déjà en cours'}), 409
-    # Arrêter le monitoring pendant le scan
     if monitor and monitor.running:
         monitor.stop()
         time.sleep(2)
@@ -257,9 +248,9 @@ def scan_stream():
         generate_scan_sse(),
         mimetype='text/event-stream',
         headers={
-            'Cache-Control':    'no-cache',
+            'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',
-            'Connection':       'keep-alive',
+            'Connection': 'keep-alive',
         }
     )
 
@@ -269,30 +260,24 @@ def scan_stream():
 def scan_select():
     """Sélectionne un canal après le scan et démarre le monitoring."""
     global monitor
-    data    = request.get_json()
+    data = request.get_json()
     channel = data.get('channel', '')
     if not channel:
         return jsonify({'status': 'error', 'message': 'Canal manquant'}), 400
-
-    # Mettre à jour la config avec le canal sélectionné
     try:
         with open('config.json', 'r') as f:
             cfg = json.load(f)
-
         result = next(
             (r for r in (scanner.get_results() if scanner else [])
              if r['channel'] == channel),
             None
         )
-        cfg['ensemble']['channel']       = channel
+        cfg['ensemble']['channel'] = channel
         cfg['ensemble']['frequency_mhz'] = result['frequency_mhz'] if result else 0
-
         with open('config.json', 'w') as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-    # (Re)démarrer le monitoring sur ce canal
     try:
         if monitor:
             monitor.stop()
@@ -308,7 +293,6 @@ def scan_results():
     if scanner:
         return jsonify(scanner.get_results())
     return jsonify([])
-
 
 @app.route('/api/restart', methods=['POST'])
 @csrf.exempt
@@ -344,22 +328,17 @@ def save_config():
         data = request.get_json()
         with open('config.json', 'r') as f:
             config = json.load(f)
-
         if 'ensemble' in data:
             config['ensemble'].update(data['ensemble'])
-
         if 'monitoring' in data:
             config['monitoring'].update(data['monitoring'])
-
         if 'email' in data:
             for k, v in data['email'].items():
                 if k == 'sender_password' and v == '********':
                     continue
                 config['email'][k] = v
-
         with open('config.json', 'w') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
-
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -393,7 +372,9 @@ def proxy_stream():
 
     def generate():
         try:
-            with requests.get(icecast_url, stream=True, timeout=10) as r:
+            # timeout=(5, None) : 5s connect, lecture illimitée
+            # évite la coupure à ~2min causée par timeout=10
+            with requests.get(icecast_url, stream=True, timeout=(5, None)) as r:
                 if 'audio' not in r.headers.get('content-type', ''):
                     return
                 for chunk in r.iter_content(chunk_size=4096):
@@ -412,11 +393,9 @@ def proxy_stream():
         }
     )
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Démarrage
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 @app.route('/api/config/export')
 @auth.login_required
@@ -436,7 +415,6 @@ def export_config():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/api/email/test', methods=['POST'])
 @csrf.exempt
 @auth.login_required
@@ -454,7 +432,6 @@ def test_email():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-
 @app.route('/slide/<sid>')
 @limiter.exempt
 @csrf.exempt
@@ -471,12 +448,6 @@ def proxy_slide(sid):
     except Exception as e:
         logger.debug(f"Slide {sid} : {e}")
     return '', 404
-
-
-@app.route('/stats')
-@auth.login_required
-def stats_page():
-    return render_template('stats.html')
 
 @app.route('/api/stats/uptime')
 @auth.login_required
@@ -504,7 +475,6 @@ if __name__ == '__main__':
     if os.path.exists(cert_file) and os.path.exists(key_file):
         ssl_context = (cert_file, key_file)
         logger.info("HTTPS activé")
-
     try:
         app.run(host='0.0.0.0', port=5000, debug=False,
                 threaded=True, ssl_context=ssl_context)

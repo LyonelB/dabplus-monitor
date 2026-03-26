@@ -182,7 +182,7 @@
               <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.9s ease-in-out"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.15s linear"></div>
             </div>
           </div>
           <div>
@@ -190,7 +190,7 @@
               <span>Droite</span><span id="detail-audio-r">— dBFS</span>
             </div>
             <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.9s ease-in-out"></div>
+              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.15s linear"></div>
             </div>
           </div>
           <!-- Niveaux captés (welle-cli) -->
@@ -523,8 +523,8 @@ function updateServiceDetail(svc) {
   document.getElementById('detail-sid').textContent   = svc.sid   || '—';
   document.getElementById('detail-mode').textContent  = svc.mode  || svc.mode_full || '—';
   document.getElementById('detail-dls').textContent   = svc.dls   || '(pas de DLS)';
-  const vuL = (svc.vu_l != null && svc.vu_l > -98) ? svc.vu_l : (svc.audio_l || -100);
-  const vuR = (svc.vu_r != null && svc.vu_r > -98) ? svc.vu_r : (svc.audio_r || -100);
+  const vuL = svc.audio_l ?? -100;
+  const vuR = svc.audio_r ?? -100;
   document.getElementById('detail-audio-l').textContent = vuL.toFixed(1) + ' dBFS';
   document.getElementById('detail-audio-r').textContent = vuR.toFixed(1) + ' dBFS';
   setBar('detail-bar-l', Math.max(0,Math.min(100,(vuL+60)/60*100)), '#22c55e');
@@ -575,6 +575,7 @@ function setBar(id, pct, color) {
 let loadingForSid = null;
 
 function selectService(sid) {
+  const wasPlaying = isPlaying;
   if (selectedSid && selectedSid !== sid && isPlaying) stopPlay();
   selectedSid = sid;
   const svc = servicesData[sid];
@@ -583,10 +584,10 @@ function selectService(sid) {
   event?.currentTarget?.classList.add('active');
   document.getElementById('service-detail').style.display = 'block';
   updateServiceDetail(svc);
-  preloadStream(sid);
+  preloadStream(sid, wasPlaying);
 }
 
-function preloadStream(sid) {
+function preloadStream(sid, autoPlay) {
   loadingForSid = sid;
 
   // Cacher le player, montrer la barre
@@ -605,7 +606,8 @@ function preloadStream(sid) {
     body: JSON.stringify({sid})
   }).catch(()=>{});
 
-  const maxAttempts = 8;
+  // 15 tentatives × 1s = 15s — suffisant pour que ffmpeg redémarre après un switch
+  const maxAttempts = 15;
   let attempts = 0;
   const poll = setInterval(async () => {
     if (loadingForSid !== sid) { clearInterval(poll); return; }
@@ -615,7 +617,7 @@ function preloadStream(sid) {
     if (pctEl) pctEl.textContent = pct + ' %';
     try {
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 800);
+      setTimeout(() => ctrl.abort(), 1500);
       const r  = await fetch('/stream.mp3?p=' + Date.now(), { signal: ctrl.signal });
       const ct = r.headers.get('content-type') || '';
       r.body?.cancel();
@@ -628,13 +630,15 @@ function preloadStream(sid) {
         setTimeout(() => {
           if (playerLoading) playerLoading.style.display = 'none';
           if (playerReady)   { playerReady.style.display = 'flex'; playerReady.style.alignItems = 'center'; }
+          // Si on était en train d'écouter avant le switch → relancer automatiquement
+          if (autoPlay) startPlay();
         }, 400);
         return;
       }
     } catch(e) {}
     if (attempts >= maxAttempts) {
       clearInterval(poll);
-      // Timeout : afficher quand même le player
+      // Timeout : afficher le player — l'utilisateur peut réessayer manuellement
       if (playerLoading) playerLoading.style.display = 'none';
       if (playerReady)   { playerReady.style.display = 'flex'; playerReady.style.alignItems = 'center'; }
     }
@@ -670,6 +674,30 @@ function startPlay() {
   }
   const btnStream = document.getElementById('btn-stream');
   if (btnStream) { btnStream.textContent = '⏹ Stop'; btnStream.onclick = stopPlay; }
+
+  // Auto-reconnexion limitée : max 5 essais avec backoff, puis stop propre
+  let _reconnectCount = 0;
+  let _reconnectTimer = null;
+  player.onerror = () => {
+    if (!isPlaying) return;
+    _reconnectCount++;
+    if (_reconnectCount > 5) {
+      console.log('Stream irrécupérable après 5 tentatives — arrêt');
+      stopPlay();
+      return;
+    }
+    const delay = _reconnectCount * 3000; // backoff : 3s, 6s, 9s, 12s, 15s
+    console.log('Stream coupé (' + _reconnectCount + '/5) — reconnexion dans ' + (delay/1000) + 's');
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = setTimeout(() => {
+      if (isPlaying) {
+        player.src = '/stream.mp3?' + Date.now();
+        player.play().catch(()=>{});
+      }
+    }, delay);
+  };
+  // Réinitialiser le compteur dès que la lecture reprend correctement
+  player.onplaying = () => { _reconnectCount = 0; };
 }
 
 function stopPlay() {
@@ -825,8 +853,9 @@ function escHtml(s) {
 // Gestion visibilité onglet — libère les threads Gunicorn quand l'onglet est caché
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    // SSE stats suspendu pour libérer les threads Gunicorn
+    // mais la lecture audio continue en arrière-plan
     if (statsEventSource) { statsEventSource.close(); statsEventSource = null; }
-    if (isPlaying) stopPlay();
   } else {
     connectStats();
   }

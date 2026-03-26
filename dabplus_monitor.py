@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # ── Timeouts et constantes ──────────────────────────────────────────────────
 WELLE_STARTUP_TIMEOUT = 15    # secondes pour que welle-cli soit prêt
 POLL_RETRIES          = 3     # tentatives avant de déclarer welle-cli mort
+STARTUP_GRACE_PERIOD  = 90   # secondes après démarrage : pas d'alertes silence/absence
 
 
 class DABPlusMonitor:
@@ -73,14 +74,15 @@ class DABPlusMonitor:
 
         # ── Métriques RF ────────────────────────────────────────────────
         self.rf_metrics = {
-            'snr':            0.0,
-            'fic_quality':    0.0,
-            'fic_errors':     0,
-            'freq_corr':      0.0,
-            'gain':           0.0,
-            'ensemble_label': '',
-            'ensemble_id':    '',
-            'nb_services':    0,
+            'snr':                  0.0,
+            'fic_quality':          0.0,
+            'fic_errors':           0,
+            'freq_corr':            0.0,
+            'gain':                 0.0,
+            'ensemble_label':       '',
+            'ensemble_id':          '',
+            'nb_services':          0,
+            'current_carousel_sid': '',  # welle-monitor fork
         }
         self.rf_lock = threading.Lock()
 
@@ -93,6 +95,17 @@ class DABPlusMonitor:
         self.email_alert = EmailAlert(config_path)
         self.db          = FMDatabase()
         self.last_db_save = time.time()
+
+        # ── Moyenne glissante RF (15 secondes) ──────────────────────────
+        from collections import deque as _deque
+        self._rf_window   = 15   # secondes
+        self._rf_buffers  = {
+            'snr':         _deque(),
+            'fic_quality': _deque(),
+            'gain':        _deque(),
+        }
+        self._rf_buf_lock = threading.Lock()
+        self._relaunch_lock = threading.Lock()  # empêche les relances simultanées
 
         # ── Stats exposées à l'API ──────────────────────────────────────
         self.stats_lock  = threading.Lock()
@@ -151,11 +164,13 @@ class DABPlusMonitor:
         t = threading.Thread(target=self._launch_welle_cli, daemon=True)
         t.start()
 
-        # Attendre que l'API soit disponible
+        # Attendre que l'API soit disponible (non bloquant : on continue même si absent)
         if not self._wait_for_welle():
-            logger.error("welle-cli ne répond pas au démarrage")
-            self.stats['status'] = 'Erreur welle-cli'
-            return
+            logger.warning("welle-cli pas encore prêt — les threads démarrent quand même, "
+                           "le watchdog prendra le relais dès que le signal sera présent")
+            self.stats['status'] = 'En attente signal'
+        else:
+            self.stats['status'] = 'En cours'
 
         # Thread de polling /mux.json
         poll_t = threading.Thread(target=self._poll_loop, daemon=True)
@@ -165,16 +180,11 @@ class DABPlusMonitor:
         watch_t = threading.Thread(target=self._watchdog_loop, daemon=True)
         watch_t.start()
 
-        # Thread VU-mètre ffmpeg
-        vu_t = threading.Thread(target=self._vu_meter_loop, daemon=True)
-        vu_t.start()
-
         # Thread streaming si activé
         if self.stream_cfg.get('enabled') and self.active_sid:
             stream_t = threading.Thread(target=self._start_streaming, daemon=True)
             stream_t.start()
 
-        self.stats['status'] = 'En cours'
         logger.info(f"DAB+ Monitor démarré — canal {self.ens_config['channel']} "
                     f"({self.ens_config['frequency_mhz']} MHz)")
 
@@ -217,7 +227,8 @@ class DABPlusMonitor:
             f"welle-cli "
             f"-c {channel} "
             f"{gain_arg} "
-            f"{decode_mode}w {self.welle_port}"
+            f"{decode_mode} "
+            f"-w {self.welle_port}"
         )
 
         logger.info(f"Lancement : {cmd}")
@@ -241,13 +252,32 @@ class DABPlusMonitor:
                     threading.Thread(target=self._launch_welle_cli, daemon=True).start()
 
     def _wait_for_welle(self) -> bool:
-        """Attend que /mux.json réponde."""
+        """Attend que welle-cli soit pret.
+        Utilise /status (endpoint leger, ne freeze jamais) si disponible,
+        sinon fallback sur /mux.json pour compatibilite avec welle-cli standard.
+        """
         deadline = time.time() + WELLE_STARTUP_TIMEOUT
         while time.time() < deadline:
             try:
-                r = requests.get(f"{self.welle_url}/mux.json", timeout=2)
-                if r.status_code == 200:
-                    logger.info("welle-cli prêt")
+                # Essayer d'abord /status (welle-monitor fork)
+                result = subprocess.run(
+                    ['curl', '-s', '--max-time', '2',
+                     '-o', '/dev/null', '-w', '%{http_code}',
+                     f"{self.welle_url}/status"],
+                    capture_output=True, text=True, timeout=4
+                )
+                if result.returncode == 0 and result.stdout.strip() == '200':
+                    logger.info("welle-cli prêt (via /status)")
+                    return True
+                # Fallback /mux.json (welle-cli standard)
+                result = subprocess.run(
+                    ['curl', '-s', '--max-time', '2',
+                     '-o', '/dev/null', '-w', '%{http_code}',
+                     f"{self.welle_url}/mux.json"],
+                    capture_output=True, text=True, timeout=4
+                )
+                if result.returncode == 0 and result.stdout.strip() == '200':
+                    logger.info("welle-cli prêt (via /mux.json)")
                     return True
             except Exception:
                 pass
@@ -261,11 +291,12 @@ class DABPlusMonitor:
     def _poll_loop(self):
         """Polling régulier de /mux.json."""
         fail_count = 0
+        HARD_RESTART_AFTER = 5  # relancer welle-cli après N échecs consécutifs
         while self.running:
             try:
                 r = requests.get(
                     f"{self.welle_url}/mux.json",
-                    timeout=3
+                    timeout=(3, 3)   # (connect_timeout, read_timeout) — hard limit sur les deux
                 )
                 if r.status_code == 200:
                     data = r.json()
@@ -282,7 +313,13 @@ class DABPlusMonitor:
                 with self.rf_lock:
                     self.rf_metrics['snr'] = 0.0
                     self.rf_metrics['fic_quality'] = 0.0
-                fail_count = 0
+
+            # Après HARD_RESTART_AFTER échecs → relance welle-cli sans attendre le watchdog
+            # fail_count reste élevé pour continuer à signaler jusqu'au prochain succès
+            if fail_count >= HARD_RESTART_AFTER:
+                logger.warning(f"Poll : {fail_count} échecs consécutifs — relance welle-cli")
+                fail_count = POLL_RETRIES  # garder un niveau d'alerte sans respammer
+                threading.Thread(target=self._watchdog_system, daemon=True).start()
 
             time.sleep(self.poll_interval)
 
@@ -339,17 +376,46 @@ class DABPlusMonitor:
         gain         = float(data.get('receiver', {}).get('hardware', {}).get('gain', 0))
         services_raw = data.get('services', [])
 
+        # ── Champs welle-monitor fork ──────────────────────────────────
+        # server_time : timestamp Unix côté serveur welle-cli
+        # Permet de détecter si les données sont périmées (ex: signal coupé)
+        server_time = data.get('server_time', None)
+        if server_time:
+            data_age = abs(time.time() - server_time)
+            if data_age > 30:
+                logger.debug(f"Données mux.json anciennes de {data_age:.0f}s")
+
+        # current_carousel_sid : service actif en mode carousel (-C N)
+        # Permet de savoir quel service est en cours de décodage
+        current_carousel_sid = data.get('current_carousel_sid', None)
+        if current_carousel_sid:
+            with self.rf_lock:
+                self.rf_metrics['current_carousel_sid'] = current_carousel_sid
+
         # FIC quality : delta d'erreurs CRC entre deux polls (numcrcerrors est cumulatif)
         prev_errors  = self.rf_metrics.get('fic_errors', 0)
         delta_errors = max(0, fic_errors - prev_errors) if fic_errors >= prev_errors else 0
         fic_quality  = max(0.0, 100.0 - min(delta_errors * 2.0, 100.0))
 
+        # ── Moyenne glissante SNR / FIC / Gain (fenêtre 15s) ────────────
+        now_ts = time.time()
+        cutoff  = now_ts - self._rf_window
+        with self._rf_buf_lock:
+            for key, val in [('snr', snr), ('fic_quality', fic_quality), ('gain', gain)]:
+                buf = self._rf_buffers[key]
+                buf.append((now_ts, val))
+                while buf and buf[0][0] < cutoff:
+                    buf.popleft()
+            snr_avg = sum(v for _, v in self._rf_buffers['snr'])         / len(self._rf_buffers['snr'])
+            fic_avg = sum(v for _, v in self._rf_buffers['fic_quality']) / len(self._rf_buffers['fic_quality'])
+            gain_avg= sum(v for _, v in self._rf_buffers['gain'])        / len(self._rf_buffers['gain'])
+
         with self.rf_lock:
-            self.rf_metrics['snr']            = snr
-            self.rf_metrics['fic_quality']    = fic_quality
+            self.rf_metrics['snr']            = round(snr_avg, 1)
+            self.rf_metrics['fic_quality']    = round(fic_avg, 1)
             self.rf_metrics['fic_errors']     = fic_errors
             self.rf_metrics['freq_corr']      = freq_corr
-            self.rf_metrics['gain']           = gain
+            self.rf_metrics['gain']           = round(gain_avg, 1)
             self.rf_metrics['ensemble_label'] = ens_label
             self.rf_metrics['ensemble_id']    = ens_id
             self.rf_metrics['nb_services']    = len(services_raw)
@@ -461,12 +527,19 @@ class DABPlusMonitor:
 
     def _watchdog_loop(self):
         """Surveille les seuils et envoie les alertes."""
+        _sys_check_interval = 10   # vérifier welle-cli toutes les 10s
+        _last_sys_check = 0.0
         while self.running:
             try:
                 self._check_ensemble_alerts()
                 self._check_service_alerts()
                 self._update_uptime()
-                self._watchdog_system()
+                # Watchdog system espacé pour ne pas surcharger welle-cli
+                now = time.time()
+                if now - _last_sys_check >= _sys_check_interval:
+                    # Dans un thread pour ne pas bloquer les alertes/uptime
+                    threading.Thread(target=self._watchdog_system, daemon=True).start()
+                    _last_sys_check = now
             except Exception as e:
                 logger.error(f"Watchdog erreur : {e}")
             time.sleep(1)
@@ -514,6 +587,15 @@ class DABPlusMonitor:
         now = time.time()
         silence_dur   = float(self.mon_cfg.get('audio_silence_duration', 30))
         service_loss  = float(self.mon_cfg.get('service_loss_duration',  60))
+
+        # Période de grâce au démarrage : pas d'alertes pendant STARTUP_GRACE_PERIOD s
+        # Evite les fausses alertes de silence quand le carousel n'a pas encore
+        # eu le temps de décoder tous les services
+        startup_time = self.stats.get('start_time')
+        if startup_time:
+            uptime = (datetime.now() - startup_time).total_seconds()
+            if uptime < STARTUP_GRACE_PERIOD:
+                return  # trop tôt pour alerter
 
         with self.services_lock:
             for sid, state in self.services.items():
@@ -608,68 +690,6 @@ class DABPlusMonitor:
     # Streaming Icecast
     # ═══════════════════════════════════════════════════════════════════════
 
-    def _vu_meter_loop(self):
-        """
-        Analyse audio du flux MP3 actif via ffmpeg ebur128.
-        Extrait les niveaux L/R (FTPK) toutes les 100ms.
-        Format: FTPK: -3.3 -0.5 dBFS
-        """
-        import re
-        self._vu_process = None
-        pattern = re.compile(r'lavfi\.astats\.(\d+)\.RMS_level=([+-]?[\d.]+|(-?)inf)')
-
-        while self.running:
-            sid = self.active_sid
-            if not sid:
-                time.sleep(1)
-                continue
-
-            source = f"http://localhost:{self.welle_port}/mp3/{sid}"
-            cmd = [
-                "ffmpeg", "-reconnect", "1",
-                "-i", source,
-                "-af", "astats=metadata=1:reset=1,ametadata=print",
-                "-f", "null", "-"
-            ]
-
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    bufsize=1
-                )
-                self._vu_process = proc
-
-                levels = {}
-                for raw in proc.stderr:
-                    if not self.running or self.active_sid != sid:
-                        break
-                    try:
-                        line = raw.decode("utf-8", errors="ignore").strip()
-                        m = pattern.search(line)
-                        if m:
-                            ch  = int(m.group(1))
-                            val = m.group(2)
-                            db  = -100.0 if "inf" in val else float(val)
-                            levels[ch] = db
-                            if 1 in levels and 2 in levels:
-                                with self.services_lock:
-                                    if sid in self.services:
-                                        self.services[sid].vu_l = levels[1]
-                                        self.services[sid].vu_r = levels[2]
-                                levels = {}
-                    except Exception:
-                        pass
-
-                proc.wait()
-
-            except Exception as e:
-                logger.debug(f"VU-mètre ffmpeg : {e}")
-
-            if self.running:
-                time.sleep(2)
-
 
     def _kill_all_streaming(self):
         """Tue TOUS les ffmpeg streaming vers Icecast sans exception."""
@@ -751,28 +771,70 @@ class DABPlusMonitor:
     # ═══════════════════════════════════════════════════════════════════════
 
     def _watchdog_system(self):
-        """Vérifie que welle-cli répond et relance si nécessaire."""
-        import requests as req
+        """Vérifie que welle-cli répond et relance si nécessaire.
+        Utilise curl via subprocess pour un timeout hard indépendant de requests/urllib3.
+        Le verrou _relaunch_lock empêche les relances simultanées.
+        """
+        # Si une relance est déjà en cours, ne rien faire
+        if not self._relaunch_lock.acquire(blocking=False):
+            logger.debug("Watchdog : relance déjà en cours, ignoré")
+            return
+
+        ok = False
         try:
-            r = req.get(f"{self.welle_url}/mux.json", timeout=3)
-            if r.status_code != 200:
-                raise Exception("welle-cli ne répond pas")
+            # /status ne freeze jamais (n'acquiert pas rx_mut)
+            # Compatible welle-monitor fork ; fallback /mux.json pour welle-cli standard
+            result = subprocess.run(
+                ['curl', '-s', '--max-time', '4',
+                 '-o', '/dev/null', '-w', '%{http_code}',
+                 f"{self.welle_url}/status"],
+                capture_output=True, text=True, timeout=6
+            )
+            if result.returncode == 0 and result.stdout.strip() == '200':
+                ok = True
+            else:
+                # Fallback /mux.json
+                result = subprocess.run(
+                    ['curl', '-s', '--max-time', '4',
+                     '-o', '/dev/null', '-w', '%{http_code}',
+                     f"{self.welle_url}/mux.json"],
+                    capture_output=True, text=True, timeout=6
+                )
+                ok = result.returncode == 0 and result.stdout.strip() == '200'
         except Exception as e:
-            logger.warning(f"Watchdog : welle-cli KO ({e}) — relance")
-            try:
-                if self.welle_process:
-                    self.welle_process.kill()
-            except Exception:
-                pass
-            import os
-            os.system("pkill -9 welle-cli 2>/dev/null")
-            time.sleep(2)
+            ok = False
+            logger.debug(f"Watchdog curl exception : {e}")
+
+        if ok:
+            # welle-cli répond — libérer le lock immédiatement
+            self._relaunch_lock.release()
+            return
+
+        # welle-cli KO — relancer (le lock sera libéré dans _relaunch_welle_and_wait)
+        logger.warning("Watchdog : welle-cli KO — relance")
+        try:
+            if self.welle_process:
+                self.welle_process.kill()
+        except Exception:
+            pass
+        os.system("pkill -9 welle-cli 2>/dev/null")
+        time.sleep(2)
+        self._relaunch_welle_and_wait()
+
+    def _relaunch_welle_and_wait(self):
+        """Relance welle-cli et attend qu'il soit prêt. Libère _relaunch_lock à la fin."""
+        try:
             t = threading.Thread(target=self._launch_welle_cli, daemon=True)
             t.start()
             if self._wait_for_welle():
-                logger.info("Watchdog : welle-cli relancé")
+                logger.info("Watchdog : welle-cli relancé avec succès")
             else:
-                logger.error("Watchdog : welle-cli ne répond toujours pas")
+                logger.error("Watchdog : welle-cli ne répond toujours pas après relance")
+        finally:
+            try:
+                self._relaunch_lock.release()
+            except RuntimeError:
+                pass  # déjà libéré
 
     def get_uptime_stats(self) -> list:
         """Retourne les stats de présence des services (24h)."""
@@ -876,12 +938,7 @@ class _ServiceState:
         self.err_rs       = 0
         self.channels     = 2
         self.mot_time     = 0
-        self.vu_l         = -100.0
-        self.vu_r         = -100.0
-        self.vu_l         = -100.0
-        self.vu_r         = -100.0
-        self.vu_l         = -100.0
-        self.vu_r         = -100.0
+
 
         # Surveillance
         self.present         = True
@@ -919,6 +976,5 @@ class _ServiceState:
             'err_frame':      self.err_frame,
             'err_rs':         self.err_rs,
             'mot_time':       self.mot_time,
-            'vu_l':           round(self.vu_l, 1),
-            'vu_r':           round(self.vu_r, 1),
+
         }
