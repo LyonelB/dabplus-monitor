@@ -106,6 +106,7 @@ class DABPlusMonitor:
         }
         self._rf_buf_lock = threading.Lock()
         self._relaunch_lock = threading.Lock()  # empêche les relances simultanées
+        self._launch_lock   = threading.Lock()  # empêche les lancements welle-cli simultanés
 
         # ── Stats exposées à l'API ──────────────────────────────────────
         self.stats_lock  = threading.Lock()
@@ -211,45 +212,75 @@ class DABPlusMonitor:
     # ═══════════════════════════════════════════════════════════════════════
 
     def _launch_welle_cli(self):
-        """Lance welle-cli en mode décodage complet + webserver."""
-        channel     = self.ens_config['channel']
-        gain        = int(self.rtl_config.get('gain', -1))
-        carousel    = int(self.welle_cfg.get('carousel_size', 0))
-        ppm         = int(self.rtl_config.get('ppm_error', 0))
-
-        # -D : décode tous les services simultanément (Pi4 4Go le supporte)
-        # -C N : mode carousel si -D trop gourmand
-        decode_mode = f"-C {carousel}" if carousel > 0 else "-D"
-
-        gain_arg = f"-g {gain}" if gain >= 0 else "-g -1"
-
-        cmd = (
-            f"welle-cli "
-            f"-c {channel} "
-            f"{gain_arg} "
-            f"{decode_mode} "
-            f"-w {self.welle_port}"
-        )
-
-        logger.info(f"Lancement : {cmd}")
+        """Lance welle-cli en mode décodage complet + webserver.
+        Le verrou _launch_lock garantit qu'une seule instance tourne à la fois.
+        """
+        # Empêcher les lancements simultanés (watchdog + auto-relance)
+        if not self._launch_lock.acquire(blocking=True, timeout=10):
+            logger.warning("_launch_welle_cli : verrou non acquis, abandon")
+            return
 
         try:
-            self.welle_process = subprocess.Popen(
-                cmd,
-                shell=True,
-                executable='/bin/bash',
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            # Tuer toute instance welle-cli existante avant d'en lancer une nouvelle
+            if self.welle_process:
+                try:
+                    self.welle_process.kill()
+                    self.welle_process.wait(timeout=3)
+                except Exception:
+                    pass
+                self.welle_process = None
+            os.system("pkill -9 welle-cli 2>/dev/null")
+            time.sleep(1)  # laisser le dongle USB se libérer
+
+            channel     = self.ens_config['channel']
+            gain        = int(self.rtl_config.get('gain', -1))
+            carousel    = int(self.welle_cfg.get('carousel_size', 0))
+            ppm         = int(self.rtl_config.get('ppm_error', 0))
+
+            decode_mode = f"-C {carousel}" if carousel > 0 else "-D"
+            gain_arg = f"-g {gain}" if gain >= 0 else "-g -1"
+
+            cmd = (
+                f"welle-cli "
+                f"-c {channel} "
+                f"{gain_arg} "
+                f"{decode_mode} "
+                f"-w {self.welle_port}"
             )
-            self.welle_process.wait()
+
+            logger.info(f"Lancement : {cmd}")
+
+            try:
+                self.welle_process = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    executable='/bin/bash',
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self._launch_lock.release()  # libérer le lock : welle-cli est lancé
+                self.welle_process.wait()
+            except Exception as e:
+                logger.error(f"Erreur welle-cli : {e}")
+                try:
+                    self._launch_lock.release()
+                except RuntimeError:
+                    pass
+
         except Exception as e:
-            logger.error(f"Erreur welle-cli : {e}")
-        finally:
+            logger.error(f"_launch_welle_cli exception : {e}")
+            try:
+                self._launch_lock.release()
+            except RuntimeError:
+                pass
+            return
+
+        # welle-cli s'est arrêté — relance après délai
+        if self.running:
+            logger.error("welle-cli s'est arrêté — relance dans 5s")
+            time.sleep(5)
             if self.running:
-                logger.error("welle-cli s'est arrêté — relance dans 5s")
-                time.sleep(5)
-                if self.running:
-                    threading.Thread(target=self._launch_welle_cli, daemon=True).start()
+                threading.Thread(target=self._launch_welle_cli, daemon=True).start()
 
     def _wait_for_welle(self) -> bool:
         """Attend que welle-cli soit pret.

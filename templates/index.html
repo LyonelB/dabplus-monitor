@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DAB+ Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📻</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
@@ -441,6 +442,7 @@ function updateDashboard(stats) {
   if (selectedSid && servicesData[selectedSid]) {
     updateServiceDetail(servicesData[selectedSid]);
   }
+
 }
 
 function setRfField(valId, val, barId, pct, color) {
@@ -590,7 +592,6 @@ function selectService(sid) {
 function preloadStream(sid, autoPlay) {
   loadingForSid = sid;
 
-  // Cacher le player, montrer la barre
   const playerReady   = document.getElementById('player-ready');
   const playerLoading = document.getElementById('player-loading');
   const bar  = document.getElementById('load-bar');
@@ -600,18 +601,20 @@ function preloadStream(sid, autoPlay) {
   if (bar)   bar.style.width = '0%';
   if (pctEl) pctEl.textContent = '0 %';
 
-  // 1. Demander à welle-monitor de pinner ce service immédiatement
-  //    (endpoint spécifique au fork — ignoré si welle-cli standard)
+  // Carousel pin (welle-monitor fork) — force le décodage immédiat du service
   fetch('/api/welle/carousel/pin/' + sid, {method:'POST'}).catch(()=>{});
 
-  // 2. Lancer le switch côté serveur (ffmpeg → Icecast)
+  // Switch côté serveur (ffmpeg → Icecast)
   fetch('/api/service/switch', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({sid})
   }).catch(()=>{});
 
-  // Polling 500ms au lieu de 1000ms — welle-cli répond plus vite grâce au pin
-  const maxAttempts = 30;  // 30 × 500ms = 15s max (même durée totale)
+  // Polling /stream.mp3 : on attend qu'Icecast soit alimenté et que le browser
+  // ait commencé à bufferiser AVANT d'afficher le bouton Play.
+  // Ainsi au moment du clic, le buffer est déjà partiellement rempli
+  // et la lecture démarre sans délai supplémentaire.
+  const maxAttempts = 30;
   let attempts = 0;
   const poll = setInterval(async () => {
     if (loadingForSid !== sid) { clearInterval(poll); return; }
@@ -628,13 +631,11 @@ function preloadStream(sid, autoPlay) {
       if (r.ok && ct.includes('audio')) {
         clearInterval(poll);
         if (loadingForSid !== sid) return;
-        // Chargement terminé — afficher le player
         if (bar)   bar.style.width = '100%';
         if (pctEl) pctEl.textContent = '✓ Prêt';
         setTimeout(() => {
           if (playerLoading) playerLoading.style.display = 'none';
           if (playerReady)   { playerReady.style.display = 'flex'; playerReady.style.alignItems = 'center'; }
-          // Si on était en train d'écouter avant le switch → relancer automatiquement
           if (autoPlay) startPlay();
         }, 400);
         return;
@@ -642,11 +643,10 @@ function preloadStream(sid, autoPlay) {
     } catch(e) {}
     if (attempts >= maxAttempts) {
       clearInterval(poll);
-      // Timeout : afficher le player — l'utilisateur peut réessayer manuellement
       if (playerLoading) playerLoading.style.display = 'none';
       if (playerReady)   { playerReady.style.display = 'flex'; playerReady.style.alignItems = 'center'; }
     }
-  }, 500);
+  }, 1000);
 }
 
 let isPlaying = false;
