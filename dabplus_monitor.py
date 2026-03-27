@@ -533,6 +533,7 @@ class DABPlusMonitor:
                 raw_r = int(audio.get('right', 0))
                 state.audio_l  = _raw_to_dbfs(raw_l)
                 state.audio_r  = _raw_to_dbfs(raw_r)
+                state.audio_time = int(audio.get('time', 0))
                 state.channels = int(svc.get('channels', 2))
 
                 # Metadonnees complementaires
@@ -563,10 +564,24 @@ class DABPlusMonitor:
                         state.silence_start = now
                 else:
                     if state.silence_start is not None:
+                        # Envoyer le mail de rétablissement si une alerte avait été envoyée
+                        if real_service and state.silence_alert_sent:
+                            logger.info(f"Audio rétabli : {label}")
+                            self._send_alert_tracked(
+                                alert_type=f"Audio rétabli : {label}",
+                                details=(
+                                    f"Le service {label} ({sid}) a retrouve un niveau audio normal.\n"
+                                    f"Canal : {self.ens_config['channel']}"
+                                ),
+                                skip_cooldown=True
+                            )
+                            with self.stats_lock:
+                                self.stats['alerts_sent'] += 1
+                                self.stats['last_alert'] = datetime.now().isoformat()
+                        elif real_service:
+                            logger.info(f"Audio rétabli : {label}")
                         state.silence_start      = None
                         state.silence_alert_sent = False
-                        if real_service:
-                            logger.info(f"Audio rétabli : {label}")
 
             # Services absents
             for sid, state in self.services.items():
@@ -1030,6 +1045,7 @@ class _ServiceState:
         self.mode         = 'DAB+'
         self.audio_l      = -100.0
         self.audio_r      = -100.0
+        self.audio_time   = 0      # timestamp Unix du dernier niveau audio (welle-cli)
         self.subchannel_id = ''
         self.prot_info    = ''
         self.audio_srate  = 0
@@ -1064,6 +1080,7 @@ class _ServiceState:
             'mode':           self.mode,
             'audio_l':        round(self.audio_l, 1),
             'audio_r':        round(self.audio_r, 1),
+            'audio_time':     self.audio_time,
             'subchannel_id':  self.subchannel_id,
             'prot_info':      self.prot_info,
             'audio_srate':    self.audio_srate,
