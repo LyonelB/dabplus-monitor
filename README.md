@@ -2,10 +2,6 @@
 
 Interface de surveillance DAB+ pour radio associative, basée sur un Raspberry Pi 4 et une clé RTL-SDR.
 
-Développé et maintenu par [Graffiti Radio](https://graffitiradio.fr) — La Roche-sur-Yon, Vendée (France).
-
-![Dashboard DAB+ Monitor](docs/screenshot.png)
-
 ## Présentation
 
 DAB+ Monitor permet de surveiller en continu un multiplex DAB+ : niveaux audio, DLS (titre en cours), slideshow, métriques RF (SNR, FIC quality, gain), alertes email en cas de silence ou de perte de service, et écoute du bouquet via un player intégré.
