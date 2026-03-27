@@ -16,6 +16,13 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Import optionnel — le scanner peut tourner sans la DB
+try:
+    from database import DABDatabase
+    _db = DABDatabase('dab_monitor.db')
+except Exception:
+    _db = None
+
 # ── Canaux Band III complets (France / Europe) ───────────────────────────────
 BAND_III_CHANNELS = {
     '5A':  174928, '5B':  176640, '5C':  178352, '5D':  180064,
@@ -136,6 +143,28 @@ class DABScanner:
                         f"✅ {channel} — {result['ensemble_label']} "
                         f"({result['nb_services']} services, SNR {result['snr']} dB)"
                     )
+                    # Sauvegarder les services en DB pour le démarrage rapide
+                    if _db:
+                        try:
+                            # Effacer les anciens services de ce canal
+                            _db.clear_services(channel)
+                            # Sauvegarder les services détaillés
+                            for svc in result.get('services_full', []):
+                                if svc.get('sid'):
+                                    _db.save_service(
+                                        sid=svc['sid'],
+                                        channel=channel,
+                                        label=svc['label'],
+                                        bitrate=svc.get('bitrate', 0),
+                                        prot_info=svc.get('prot_info', ''),
+                                        subchannel_id=svc.get('subchannel_id', 0),
+                                        language=svc.get('language', ''),
+                                        mode=svc.get('mode', 'DAB+'),
+                                        url_mp3=svc.get('url_mp3', f'/mp3/{svc["sid"]}'),
+                                    )
+                            logger.info(f"DB : {len(result.get('services_full', []))} services sauvegardés pour {channel}")
+                        except Exception as e:
+                            logger.debug(f"Erreur save services DB : {e}")
                 else:
                     logger.debug(f"❌ {channel} — rien")
 
@@ -233,12 +262,38 @@ class DABScanner:
             if snr < 3.0 or not label:
                 return None
 
-            service_labels = [
-                s.get('label', {}).get('label', '').strip()
-                for s in services
-                if s.get('label', {}).get('label', '').strip()
-                   and s.get('label', {}).get('label', '').strip() not in ('..', '.')
-            ]
+            service_list = []
+            for s in services:
+                svc_label = s.get('label', {}).get('label', '').strip()
+                svc_sid   = s.get('sid', '')
+                if not svc_label or svc_label in ('..', '.'):
+                    continue
+                # Extraire détails techniques
+                components = s.get('components', [])
+                bitrate = 0
+                prot_info = ''
+                mode = 'DAB+'
+                subchannel_id = 0
+                for comp in components:
+                    sub = comp.get('subchannel', {})
+                    if sub.get('bitrate'):
+                        bitrate = int(sub.get('bitrate', 0))
+                    if sub.get('protection'):
+                        prot_info = str(sub.get('protection', ''))
+                    if sub.get('subchid') is not None:
+                        subchannel_id = int(sub.get('subchid', 0))
+                    if comp.get('ascty'):
+                        mode = str(comp.get('ascty', 'DAB+'))
+                service_list.append({
+                    'sid':          svc_sid,
+                    'label':        svc_label,
+                    'bitrate':      bitrate,
+                    'prot_info':    prot_info,
+                    'mode':         mode,
+                    'subchannel_id': subchannel_id,
+                    'language':     s.get('languagestring', ''),
+                    'url_mp3':      s.get('url_mp3', f'/mp3/{svc_sid}') or f'/mp3/{svc_sid}',
+                })
 
             freq_khz = BAND_III_CHANNELS.get(channel, 0)
 
@@ -248,8 +303,9 @@ class DABScanner:
                 'ensemble_label': label,
                 'ensemble_id':    eid,
                 'snr':            round(snr, 1),
-                'nb_services':    len(services),
-                'services':       service_labels[:10],   # max 10 pour l'affichage
+                'nb_services':    len(service_list),
+                'services':       [s['label'] for s in service_list[:10]],
+                'services_full':  service_list,  # données complètes pour la DB
                 'scanned_at':     datetime.now().strftime('%d/%m/%Y %H:%M'),
             }
         except Exception as e:

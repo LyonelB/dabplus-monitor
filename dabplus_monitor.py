@@ -25,7 +25,7 @@ import os
 import requests
 from datetime import datetime
 from email_alert import EmailAlert
-from database import FMDatabase   # réutilisé tel quel
+from database import DABDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class DABPlusMonitor:
 
         # ── Alertes ─────────────────────────────────────────────────────
         self.email_alert = EmailAlert(config_path)
-        self.db          = FMDatabase()
+        self.db          = DABDatabase('dab_monitor.db')
         self.last_db_save = time.time()
 
         # ── Moyenne glissante RF (15 secondes) ──────────────────────────
@@ -107,6 +107,7 @@ class DABPlusMonitor:
         self._rf_buf_lock = threading.Lock()
         self._relaunch_lock = threading.Lock()  # empêche les relances simultanées
         self._launch_lock   = threading.Lock()  # empêche les lancements welle-cli simultanés
+        self._is_restarting = False               # flag : une relance est en cours
 
         # ── Stats exposées à l'API ──────────────────────────────────────
         self.stats_lock  = threading.Lock()
@@ -131,8 +132,8 @@ class DABPlusMonitor:
         }
 
     def _send_alert_tracked(self, alert_type, details, skip_cooldown=False):
-        """Envoie une alerte email et l'enregistre dans l'historique 24h."""
-        self.email_alert.send_alert(alert_type, details, skip_cooldown=skip_cooldown)
+        """Envoie une alerte email et l'enregistre dans l'historique 24h + base de données."""
+        email_sent = self.email_alert.send_alert(alert_type, details, skip_cooldown=skip_cooldown)
         now = time.time()
         entry = {'ts': now, 'type': alert_type, 'details': details}
         cutoff = now - 86400
@@ -143,6 +144,17 @@ class DABPlusMonitor:
         with self.stats_lock:
             self.stats['alerts_sent'] += 1
             self.stats['last_alert'] = datetime.fromtimestamp(now).strftime('%d/%m/%Y %H:%M')
+        # Persistance en base de données
+        try:
+            self.db.save_alert(
+                alert_type=alert_type,
+                level_db=None,
+                duration_seconds=None,
+                message=details,
+                email_sent=bool(email_sent)
+            )
+        except Exception as e:
+            logger.debug(f"save_alert DB : {e}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # Démarrage / arrêt
@@ -155,6 +167,24 @@ class DABPlusMonitor:
 
         self.running = True
         self.stats['start_time'] = datetime.now()
+
+        # Charger les services connus depuis la base de données
+        channel = self.ens_config.get('channel', '')
+        cached = self.db.load_services(channel)
+        if cached:
+            with self.services_lock:
+                for svc in cached:
+                    sid = svc['sid']
+                    state = _ServiceState(sid, svc.get('label', sid))
+                    state.bitrate      = svc.get('bitrate', 0)
+                    state.prot_info    = svc.get('prot_info', '')
+                    state.subchannel_id = svc.get('subchannel_id', 0)
+                    state.language     = svc.get('language', '')
+                    state.mode         = svc.get('mode', 'DAB+')
+                    state.url_mp3      = svc.get('url_mp3', f'/mp3/{sid}')
+                    state.present      = False  # sera confirmé par le premier poll
+                    self.services[sid] = state
+            logger.info(f"{len(cached)} service(s) chargé(s) depuis le cache DB (canal {channel})")
         self.stats['status']     = 'Démarrage'
 
         # Tuer les instances welle-cli orphelines
@@ -280,27 +310,34 @@ class DABPlusMonitor:
         if not self.running:
             return
 
-        # Détection de crash rapide : si welle-cli a vécu moins de 3s
+        # Détection de crash rapide + back-off exponentiel
         crash_duration = time.time() - launch_time
+
         if crash_duration < 3:
+            # Crash rapide : welle-cli n'a pas survécu 3s
             self._fast_crash_count = getattr(self, '_fast_crash_count', 0) + 1
+            # Back-off exponentiel : 5s, 10s, 20s, 40s max
+            wait = min(5 * (2 ** (self._fast_crash_count - 1)), 40)
             logger.warning(f"welle-cli crash rapide ({crash_duration:.1f}s) — "
-                           f"compteur : {self._fast_crash_count}")
+                           f"compteur : {self._fast_crash_count} — attente {wait}s")
 
             if self._fast_crash_count >= 3:
-                # Trop de crashs rapides → reset USB du dongle + attente longue
-                logger.error("3 crashs rapides consécutifs — reset USB dongle + attente 20s")
-                self._fast_crash_count = 0
-                os.system("usbreset /dev/bus/usb/001/$(lsusb | grep RTL | "
-                          "awk '{print $4}' | tr -d ':') 2>/dev/null || true")
-                time.sleep(20)
-            else:
-                time.sleep(5)
+                # 3 crashs rapides → tenter un reset USB du dongle
+                logger.error(f"3 crashs rapides consécutifs — reset USB dongle + attente {wait}s")
+                # usbreset via rtl_eeprom ou simple toggle USB power
+                os.system('for dev in /sys/bus/usb/devices/*/product; do '
+                          'grep -q RTL "$dev" 2>/dev/null && '
+                          'echo 0 > $(dirname $dev)/authorized && sleep 1 && '
+                          'echo 1 > $(dirname $dev)/authorized; done 2>/dev/null || true')
+            time.sleep(wait)
         else:
-            # Crash normal (welle-cli a vécu > 3s) → réinitialiser le compteur
+            # Crash normal : welle-cli a vécu > 3s → réinitialiser le compteur
             self._fast_crash_count = 0
             logger.error("welle-cli s'est arrêté — relance dans 5s")
             time.sleep(5)
+
+        # Réinitialiser le flag de relance avant de relancer
+        self._is_restarting = False
 
         if self.running:
             threading.Thread(target=self._launch_welle_cli, daemon=True).start()
@@ -369,10 +406,11 @@ class DABPlusMonitor:
                     self.rf_metrics['fic_quality'] = 0.0
 
             # Après HARD_RESTART_AFTER échecs → relance welle-cli sans attendre le watchdog
-            # fail_count reste élevé pour continuer à signaler jusqu'au prochain succès
-            if fail_count >= HARD_RESTART_AFTER:
+            # Ne lancer qu'un seul watchdog à la fois grâce au flag _is_restarting
+            if fail_count >= HARD_RESTART_AFTER and not self._is_restarting:
                 logger.warning(f"Poll : {fail_count} échecs consécutifs — relance welle-cli")
                 fail_count = POLL_RETRIES  # garder un niveau d'alerte sans respammer
+                self._is_restarting = True
                 threading.Thread(target=self._watchdog_system, daemon=True).start()
 
             time.sleep(self.poll_interval)
@@ -504,6 +542,24 @@ class DABPlusMonitor:
                     if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
                         self.active_sid = sid
                         logger.info(f"Service VU-mètre par défaut : {label}")
+                    # Sauvegarder en DB pour les prochains démarrages
+                    try:
+                        self.db.save_service(
+                            sid=sid,
+                            channel=self.ens_config.get('channel', ''),
+                            label=label,
+                            bitrate=int(svc.get('bitrate', 0) or 0),
+                            prot_info=str(svc.get('prot_info', '') or ''),
+                            language=str(svc.get('language', '') or ''),
+                            mode=str(svc.get('mode', 'DAB+') or 'DAB+'),
+                            url_mp3=str(svc.get('url_mp3', f'/mp3/{sid}') or f'/mp3/{sid}'),
+                        )
+                    except Exception:
+                        pass
+                else:
+                    # Mettre à jour le label si changé
+                    if self.services[sid].label != label and label not in ('..', '.', ''):
+                        self.services[sid].label = label
                     # Démarrer le VU-mètre sur le premier vrai service si aucun actif
                     if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
                         self.active_sid = sid

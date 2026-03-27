@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Module de gestion de la base de données SQLite
-Enregistre l'historique des niveaux audio, alertes et RDS
+Module de gestion de la base de données SQLite pour DAB+ Monitor
+Enregistre l'historique des alertes et des statistiques de présence
 """
 import sqlite3
 import logging
@@ -10,8 +10,8 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-class FMDatabase:
-    def __init__(self, db_path='fm_monitor.db'):
+class DABDatabase:
+    def __init__(self, db_path='dab_monitor.db'):
         """Initialise la base de données"""
         self.db_path = db_path
         # Activer WAL mode pour éviter les locks
@@ -81,6 +81,22 @@ class FMDatabase:
                 )
             ''')
             
+            # Table des services DAB+ connus (cache persistant)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS dab_services (
+                    sid TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    label TEXT,
+                    bitrate INTEGER DEFAULT 0,
+                    prot_info TEXT,
+                    subchannel_id INTEGER DEFAULT 0,
+                    language TEXT,
+                    mode TEXT DEFAULT "DAB+",
+                    url_mp3 TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (sid, channel)
+                )
+            ''')
             logger.info("Base de données initialisée")
     
     def save_audio_level(self, level_db, signal_ok):
@@ -158,15 +174,26 @@ class FMDatabase:
             return []
     
     def get_alerts_history_grouped(self, limit=50):
-        """Récupère l'historique des alertes regroupées par paires (perte + retour)"""
+        """Récupère l'historique des alertes DAB+ regroupées par paires (alerte + rétablissement)"""
 
-        # Correspondance type_perte → type_retour + libellé affiché
-        ALERT_PAIRS = {
-            'signal_lost':   ('signal_restored',      'Perte émetteur'),
-            'no_modulation': ('modulation_restored',  'Absence modulation'),
-            'rds_lost':      ('rds_restored',         'RDS absent'),
-        }
-        RESTORE_TYPES = {v[0]: k for k, v in ALERT_PAIRS.items()}
+        # Préfixes des types d'alertes DAB+ et leurs rétablissements correspondants
+        # Les types réels sont ex: "Silence audio : GRAFFITI" / "Audio rétabli : GRAFFITI"
+        # "Service DAB+ absent : RCF 85" / "Service DAB+ rétabli : RCF 85"
+        # "Ensemble DAB+ hors ligne" / "Ensemble DAB+ rétabli"
+        ALERT_PREFIXES = [
+            ('Silence audio',       'Audio rétabli',          'Silence audio'),
+            ('Service DAB+ absent', 'Service DAB+ rétabli',   'Service absent'),
+            ('Ensemble DAB+ hors',  'Ensemble DAB+ rétabli',  'Ensemble hors ligne'),
+        ]
+
+        def get_category(alert_type):
+            """Retourne (catégorie, est_rétablissement, label) pour un type d'alerte."""
+            for loss_pfx, restore_pfx, label in ALERT_PREFIXES:
+                if alert_type.startswith(restore_pfx):
+                    return (label, True)
+                if alert_type.startswith(loss_pfx):
+                    return (label, False)
+            return (alert_type, False)
 
         try:
             with self.get_connection() as conn:
@@ -187,57 +214,67 @@ class FMDatabase:
                 while i < len(alerts):
                     alert = alerts[i]
                     atype = alert['alert_type']
+                    label, is_restore = get_category(atype)
 
-                    # --- Cas rétablissement : chercher la perte correspondante ---
-                    if atype in RESTORE_TYPES:
-                        lost_type = RESTORE_TYPES[atype]
-                        label = ALERT_PAIRS[lost_type][1]
-                        lost_alert = None
+                    if is_restore:
+                        # Rétablissement : chercher l'alerte de perte correspondante
+                        loss_alert = None
+                        for j in range(i + 1, min(i + 20, len(alerts))):
+                            l2, is_r2 = get_category(alerts[j]['alert_type'])
+                            if l2 == label and not is_r2:
+                                loss_alert = alerts[j]
+                                # Supprimer l'alerte de perte de la liste
+                                alerts.pop(j)
+                                break
 
-                        if i + 1 < len(alerts) and alerts[i + 1]['alert_type'] == lost_type:
-                            lost_alert = alerts[i + 1]
-                            i += 2
+                        if loss_alert:
+                            try:
+                                dur = int((datetime.fromisoformat(alert['timestamp']) -
+                                           datetime.fromisoformat(loss_alert['timestamp'])).total_seconds())
+                            except Exception:
+                                dur = 0
+                            grouped.append({
+                                'alert_label': label,
+                                'alert_type_loss': loss_alert['alert_type'],
+                                'alert_type_restore': atype,
+                                'start_time': loss_alert['timestamp'],
+                                'end_time': alert['timestamp'],
+                                'duration': dur,
+                                'message_loss': loss_alert['message'],
+                                'message_restore': alert['message'],
+                                'emails_sent': (1 if loss_alert['email_sent'] else 0) +
+                                               (1 if alert['email_sent'] else 0),
+                                'status': 'complete'
+                            })
                         else:
                             grouped.append({
                                 'alert_label': label,
+                                'alert_type_loss': None,
+                                'alert_type_restore': atype,
                                 'start_time': alert['timestamp'],
                                 'end_time': alert['timestamp'],
-                                'duration': alert['duration_seconds'] or 0,
-                                'level_lost': alert['level_db'],
-                                'level_restored': alert['level_db'],
+                                'duration': 0,
+                                'message_loss': None,
+                                'message_restore': alert['message'],
                                 'emails_sent': 1 if alert['email_sent'] else 0,
                                 'status': 'restored_only'
                             })
-                            i += 1
-                            continue
-
-                        grouped.append({
-                            'alert_label': label,
-                            'start_time': lost_alert['timestamp'],
-                            'end_time': alert['timestamp'],
-                            'duration': int((datetime.fromisoformat(alert['timestamp']) - datetime.fromisoformat(lost_alert['timestamp'])).total_seconds()),
-                            'level_lost': lost_alert['level_db'],
-                            'level_restored': alert['level_db'],
-                            'emails_sent': (1 if lost_alert['email_sent'] else 0) + (1 if alert['email_sent'] else 0),
-                            'status': 'complete'
-                        })
-
-                    # --- Cas perte sans rétablissement ---
-                    elif atype in ALERT_PAIRS:
-                        label = ALERT_PAIRS[atype][1]
-                        grouped.append({
-                            'alert_label': label,
-                            'start_time': alert['timestamp'],
-                            'end_time': None,
-                            'duration': alert['duration_seconds'] or 0,
-                            'level_lost': alert['level_db'],
-                            'level_restored': None,
-                            'emails_sent': 1 if alert['email_sent'] else 0,
-                            'status': 'ongoing'
-                        })
                         i += 1
 
                     else:
+                        # Alerte de perte sans rétablissement encore
+                        grouped.append({
+                            'alert_label': label,
+                            'alert_type_loss': atype,
+                            'alert_type_restore': None,
+                            'start_time': alert['timestamp'],
+                            'end_time': None,
+                            'duration': alert['duration_seconds'] or 0,
+                            'message_loss': alert['message'],
+                            'message_restore': None,
+                            'emails_sent': 1 if alert['email_sent'] else 0,
+                            'status': 'ongoing'
+                        })
                         i += 1
 
                 return grouped[:limit]
@@ -246,6 +283,67 @@ class FMDatabase:
             logger.error(f"Erreur récupération alertes groupées: {e}")
             return []
     
+    def save_service(self, sid: str, channel: str, label: str, **kwargs):
+        """Enregistre ou met à jour un service DAB+ connu."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO dab_services
+                        (sid, channel, label, bitrate, prot_info, subchannel_id,
+                         language, mode, url_mp3, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                    ON CONFLICT(sid, channel) DO UPDATE SET
+                        label        = excluded.label,
+                        bitrate      = excluded.bitrate,
+                        prot_info    = excluded.prot_info,
+                        subchannel_id= excluded.subchannel_id,
+                        language     = excluded.language,
+                        mode         = excluded.mode,
+                        url_mp3      = excluded.url_mp3,
+                        updated_at   = excluded.updated_at
+                ''', (
+                    sid, channel, label,
+                    kwargs.get('bitrate', 0),
+                    kwargs.get('prot_info', ''),
+                    kwargs.get('subchannel_id', 0),
+                    kwargs.get('language', ''),
+                    kwargs.get('mode', 'DAB+'),
+                    kwargs.get('url_mp3', f'/mp3/{sid}'),
+                ))
+        except Exception as e:
+            logger.error(f"Erreur save_service : {e}")
+
+    def load_services(self, channel: str) -> list:
+        """Charge les services connus pour un canal."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT sid, label, bitrate, prot_info, subchannel_id,
+                           language, mode, url_mp3
+                    FROM dab_services
+                    WHERE channel = ?
+                    ORDER BY label
+                ''', (channel,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Erreur load_services : {e}")
+            return []
+
+    def clear_services(self, channel: str = None):
+        """Supprime le cache des services (un canal ou tous)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if channel:
+                    cursor.execute('DELETE FROM dab_services WHERE channel = ?', (channel,))
+                else:
+                    cursor.execute('DELETE FROM dab_services')
+                logger.info(f"Cache services supprimé ({channel or 'tous les canaux'})")
+        except Exception as e:
+            logger.error(f"Erreur clear_services : {e}")
+
     def cleanup_old_data(self, days=7):
         """Nettoie les données de plus de X jours"""
         try:
