@@ -473,6 +473,22 @@ def proxy_slide(sid):
         logger.debug(f"Slide {sid} : {e}")
     return '', 404
 
+@app.route('/api/logs')
+@auth.login_required
+def api_logs():
+    """Retourne les 100 dernières lignes de logs du service systemd."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['journalctl', '-u', 'dabplus-monitor', '-n', '100', '--no-pager',
+             '--output=short-iso'],
+            capture_output=True, text=True, timeout=5
+        )
+        return jsonify({'logs': result.stdout})
+    except Exception as e:
+        logger.error(f"Erreur lecture logs : {e}")
+        return jsonify({'logs': f'Erreur : {e}'}), 500
+
 @app.route('/api/stats/uptime')
 @auth.login_required
 def api_uptime():
@@ -483,8 +499,27 @@ def api_uptime():
 @app.route('/api/stats/alerts')
 @auth.login_required
 def api_alerts():
+    """Historique alertes en mémoire (24h glissantes, temps réel)."""
     if monitor:
         return jsonify(monitor.get_alert_history())
+    return jsonify([])
+
+@app.route('/api/stats/alerts/db')
+@auth.login_required
+def api_alerts_db():
+    """Historique alertes persisté en base de données (survit aux redémarrages)."""
+    if monitor:
+        limit = request.args.get('limit', 100, type=int)
+        return jsonify(monitor.db.get_alerts_history(limit=limit))
+    return jsonify([])
+
+@app.route('/api/stats/alerts/grouped')
+@auth.login_required
+def api_alerts_grouped():
+    """Historique alertes groupées par paires perte/rétablissement."""
+    if monitor:
+        limit = request.args.get('limit', 50, type=int)
+        return jsonify(monitor.db.get_alerts_history_grouped(limit=limit))
     return jsonify([])
 
 try:
