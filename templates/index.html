@@ -70,6 +70,10 @@
       <span class="text-xs text-gray-500">SNR</span>
       <span class="text-xs font-mono font-semibold text-gray-700" id="sidebar-snr">— dB</span>
     </div>
+    <div class="flex items-center justify-between mb-3" id="sidebar-carousel-row" style="display:none!important">
+      <span class="text-xs text-gray-500">En décodage</span>
+      <span class="text-xs font-mono font-semibold text-purple-600" id="sidebar-carousel-sid">—</span>
+    </div>
     <a href="/logout" class="block mt-2 text-center text-xs text-gray-400 hover:text-gray-600">Déconnexion</a>
   </div>
 </aside>
@@ -393,6 +397,19 @@ function updateDashboard(stats) {
     stats.channel || '—';
   document.getElementById('sidebar-snr').textContent =
     rf.snr != null ? rf.snr.toFixed(1) + ' dB' : '— dB';
+
+  // current_carousel_sid : service en cours de décodage en mode carousel
+  const carouselSid = rf.current_carousel_sid || '';
+  const carouselRow = document.getElementById('sidebar-carousel-row');
+  const carouselEl  = document.getElementById('sidebar-carousel-sid');
+  if (carouselSid && carouselEl) {
+    // Afficher le label du service si disponible, sinon le SID brut
+    const svc = servicesData && servicesData[carouselSid];
+    carouselEl.textContent = svc ? svc.label : carouselSid;
+    if (carouselRow) carouselRow.style.display = 'flex';
+  } else if (carouselRow) {
+    carouselRow.style.display = 'none';
+  }
 
   // ── Header ──
   document.getElementById('header-ensemble').textContent =
