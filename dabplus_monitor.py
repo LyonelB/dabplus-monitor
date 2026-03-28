@@ -168,8 +168,15 @@ class DABPlusMonitor:
         self.running = True
         self.stats['start_time'] = datetime.now()
 
-        # Charger les services connus depuis la base de données
+        # Charger les stats uptime depuis la base de données
         channel = self.ens_config.get('channel', '')
+        cached_uptime = self.db.load_uptime(channel)
+        if cached_uptime:
+            with self.uptime_lock:
+                self.uptime_stats.update(cached_uptime)
+            logger.info(f"Uptime chargé depuis DB : {len(cached_uptime)} service(s)")
+
+        # Charger les services connus depuis la base de données
         cached = self.db.load_services(channel)
         if cached:
             with self.services_lock:
@@ -310,33 +317,61 @@ class DABPlusMonitor:
         if not self.running:
             return
 
-        # Détection de crash rapide + back-off exponentiel
+        # ── Circuit breaker ─────────────────────────────────────────────────
+        # Si welle-cli crashe trop vite, le dongle est probablement dans un
+        # état incohérent. On arrête tout pendant CIRCUIT_OPEN_DELAY secondes
+        # puis on réessaie une seule fois. Pas de boucle agressive.
+        CIRCUIT_OPEN_DELAY = 300   # 5 minutes d'attente quand le dongle est mort
+        FAST_CRASH_THRESHOLD = 5   # crashs rapides avant d'ouvrir le circuit
+        FAST_CRASH_DELAY = 15      # délai entre chaque crash rapide
+
         crash_duration = time.time() - launch_time
 
         if crash_duration < 3:
-            # Crash rapide : welle-cli n'a pas survécu 3s
-            self._fast_crash_count = getattr(self, '_fast_crash_count', 0) + 1
-            # Back-off exponentiel : 5s, 10s, 20s, 40s max
-            wait = min(5 * (2 ** (self._fast_crash_count - 1)), 40)
-            logger.warning(f"welle-cli crash rapide ({crash_duration:.1f}s) — "
-                           f"compteur : {self._fast_crash_count} — attente {wait}s")
+            # Crash rapide : incrémenter le compteur (protégé par le launch_lock
+            # qui est déjà libéré, mais _fast_crash_count est sur self)
+            with threading.Lock():
+                self._fast_crash_count = getattr(self, '_fast_crash_count', 0) + 1
 
-            if self._fast_crash_count >= 3:
-                # 3 crashs rapides → tenter un reset USB du dongle
-                logger.error(f"3 crashs rapides consécutifs — reset USB dongle + attente {wait}s")
-                # usbreset via rtl_eeprom ou simple toggle USB power
+            logger.warning(f"welle-cli crash rapide ({crash_duration:.1f}s) — "
+                           f"compteur : {self._fast_crash_count}")
+
+            if self._fast_crash_count >= FAST_CRASH_THRESHOLD:
+                # Circuit ouvert : le dongle est mort
+                logger.error(
+                    f"Circuit breaker : {self._fast_crash_count} crashs rapides — "
+                    f"pause {CIRCUIT_OPEN_DELAY}s avant prochaine tentative"
+                )
+                # Reset USB du dongle via sysfs
                 os.system('for dev in /sys/bus/usb/devices/*/product; do '
                           'grep -q RTL "$dev" 2>/dev/null && '
-                          'echo 0 > $(dirname $dev)/authorized && sleep 1 && '
-                          'echo 1 > $(dirname $dev)/authorized; done 2>/dev/null || true')
-            time.sleep(wait)
+                          'echo 0 > $(dirname $dev)/authorized && sleep 2 && '
+                          'echo 1 > $(dirname $dev)/authorized; '
+                          'done 2>/dev/null || true')
+
+                self._fast_crash_count = 0
+                self._is_restarting = False
+
+                # Attendre en vérifiant régulièrement si le service doit s'arrêter
+                for _ in range(CIRCUIT_OPEN_DELAY):
+                    if not self.running:
+                        return
+                    time.sleep(1)
+
+                # Relancer une seule fois après la pause
+                if self.running:
+                    logger.info("Circuit breaker : tentative de relance après pause")
+                    threading.Thread(target=self._launch_welle_cli, daemon=True).start()
+                return
+            else:
+                # Crash rapide mais circuit pas encore ouvert
+                time.sleep(FAST_CRASH_DELAY)
         else:
             # Crash normal : welle-cli a vécu > 3s → réinitialiser le compteur
             self._fast_crash_count = 0
             logger.error("welle-cli s'est arrêté — relance dans 5s")
             time.sleep(5)
 
-        # Réinitialiser le flag de relance avant de relancer
         self._is_restarting = False
 
         if self.running:
@@ -810,6 +845,20 @@ class DABPlusMonitor:
                       if v['first_seen'] < cutoff and s not in services_snap]
             for s in to_del:
                 del self.uptime_stats[s]
+
+            # Flush en DB toutes les 5 minutes (protection SD card)
+            if not hasattr(self, '_last_uptime_flush'):
+                self._last_uptime_flush = now
+            if now - self._last_uptime_flush >= 300:
+                channel = self.ens_config.get('channel', '')
+                uptime_copy = dict(self.uptime_stats)
+                self._last_uptime_flush = now
+                # Flush dans un thread pour ne pas bloquer
+                threading.Thread(
+                    target=self.db.flush_uptime,
+                    args=(uptime_copy, channel),
+                    daemon=True
+                ).start()
 
     # ═══════════════════════════════════════════════════════════════════════
     # Streaming Icecast

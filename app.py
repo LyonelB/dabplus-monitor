@@ -221,6 +221,15 @@ def scan_start():
         gain = int(cfg.get('rtl_sdr', {}).get('gain', -1))
     except Exception:
         pass
+    # Effacer le cache des services avant le scan
+    # Le scanner repeuplera la DB avec les services découverts
+    try:
+        if monitor:
+            monitor.db.clear_services()
+            logger.info("Cache services DB effacé avant scan")
+    except Exception as e:
+        logger.debug(f"clear_services avant scan : {e}")
+
     scanner = DABScanner(gain=gain)
     scanner.start_scan()
     return jsonify({'status': 'success', 'message': 'Scan démarré'})
@@ -472,6 +481,27 @@ def proxy_slide(sid):
     except Exception as e:
         logger.debug(f"Slide {sid} : {e}")
     return '', 404
+
+@app.route('/api/services/cached')
+@auth.login_required
+def api_services_cached():
+    """Retourne les services en cache DB pour tous les canaux."""
+    if not monitor:
+        return jsonify([])
+    try:
+        # Charger tous les services (pas seulement le canal actif)
+        with monitor.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sid, channel, label, bitrate, prot_info,
+                       subchannel_id, language, mode, updated_at
+                FROM dab_services
+                ORDER BY channel, label
+            ''')
+            return jsonify([dict(row) for row in cursor.fetchall()])
+    except Exception as e:
+        logger.error(f"Erreur api_services_cached : {e}")
+        return jsonify([])
 
 @app.route('/api/logs')
 @auth.login_required

@@ -97,6 +97,23 @@ class DABDatabase:
                     PRIMARY KEY (sid, channel)
                 )
             ''')
+            # Table uptime des services (persistance des compteurs 24h)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS service_uptime (
+                    sid TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    label TEXT,
+                    date TEXT NOT NULL,
+                    checks INTEGER DEFAULT 0,
+                    present INTEGER DEFAULT 0,
+                    first_seen REAL,
+                    PRIMARY KEY (sid, channel, date)
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_uptime_date
+                ON service_uptime(date)
+            ''')
             logger.info("Base de données initialisée")
     
     def save_audio_level(self, level_db, signal_ok):
@@ -283,6 +300,72 @@ class DABDatabase:
             logger.error(f"Erreur récupération alertes groupées: {e}")
             return []
     
+    def flush_uptime(self, uptime_data: dict, channel: str):
+        """Persiste les compteurs uptime en base (appelé toutes les 5 minutes).
+        uptime_data : dict {sid: {label, checks, present, first_seen}}
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                for sid, v in uptime_data.items():
+                    cursor.execute('''
+                        INSERT INTO service_uptime
+                            (sid, channel, label, date, checks, present, first_seen)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(sid, channel, date) DO UPDATE SET
+                            label   = excluded.label,
+                            checks  = excluded.checks,
+                            present = excluded.present
+                    ''', (
+                        sid, channel, v.get('label', sid), today,
+                        v.get('checks', 0), v.get('present', 0),
+                        v.get('first_seen', 0)
+                    ))
+        except Exception as e:
+            logger.error(f"Erreur flush_uptime : {e}")
+
+    def load_uptime(self, channel: str, days: int = 1) -> dict:
+        """Charge les compteurs uptime depuis la base.
+        Retourne dict {sid: {label, checks, present, first_seen}}
+        """
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT sid, label,
+                           SUM(checks) as checks,
+                           SUM(present) as present,
+                           MIN(first_seen) as first_seen
+                    FROM service_uptime
+                    WHERE channel = ? AND date >= ?
+                    GROUP BY sid
+                ''', (channel, since))
+                result = {}
+                for row in cursor.fetchall():
+                    result[row['sid']] = {
+                        'label':      row['label'],
+                        'checks':     row['checks'],
+                        'present':    row['present'],
+                        'first_seen': row['first_seen'],
+                    }
+                return result
+        except Exception as e:
+            logger.error(f"Erreur load_uptime : {e}")
+            return {}
+
+    def cleanup_uptime(self, days: int = 7):
+        """Supprime les entrées uptime de plus de X jours."""
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM service_uptime WHERE date < ?', (cutoff,))
+                logger.debug(f"Nettoyage uptime : {cursor.rowcount} entrées supprimées")
+        except Exception as e:
+            logger.error(f"Erreur cleanup_uptime : {e}")
+
     def save_service(self, sid: str, channel: str, label: str, **kwargs):
         """Enregistre ou met à jour un service DAB+ connu."""
         try:
