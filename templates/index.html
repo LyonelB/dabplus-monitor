@@ -17,6 +17,13 @@
     .service-card { cursor: pointer; transition: all 0.15s; border: 2px solid transparent; }
     .service-card:hover { border-color: #2563eb; background: #f0f0ff; }
     .service-card.active { border-color: #2563eb; background: #eff6ff; }
+    .service-card.disabled { opacity: 0.45; filter: grayscale(0.6); }
+    .svc-switch { position:relative; display:inline-block; width:28px; height:16px; flex-shrink:0; }
+    .svc-switch input { opacity:0; width:0; height:0; }
+    .svc-switch-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#e2e8f0; border-radius:16px; transition:0.2s; }
+    .svc-switch-slider:before { position:absolute; content:""; height:12px; width:12px; left:2px; bottom:2px; background:white; border-radius:50%; transition:0.2s; }
+    .svc-switch input:checked + .svc-switch-slider { background:#22c55e; }
+    .svc-switch input:checked + .svc-switch-slider:before { transform:translateX(12px); }
     .scan-channel { cursor: pointer; transition: all 0.15s; }
     .scan-channel:hover { background: #f0f0ff; border-color: #2563eb; }
     #scan-progress-bar { transition: width 0.4s ease; }
@@ -478,6 +485,10 @@ function updateServicesGrid(services) {
         <div class="flex items-center gap-1.5 mb-1">
           <span class="dot dot-gray" id="svc-dot-${sid}"></span>
           <span class="text-xs font-semibold text-gray-800 truncate" id="svc-label-${sid}"></span>
+          <label class="svc-switch" style="margin-left:auto" title="Activer/Désactiver la surveillance" onclick="event.stopPropagation()">
+            <input type="checkbox" id="svc-toggle-${sid}" checked onchange="toggleService(event,'${sid}')">
+            <span class="svc-switch-slider"></span>
+          </label>
         </div>
         <div class="text-xs text-gray-400 font-mono truncate" id="svc-bitrate-${sid}"></div>
         <div class="text-xs text-gray-400 truncate mt-0.5" id="svc-dls-${sid}" style="font-size:10px"></div>
@@ -507,10 +518,34 @@ function updateServicesGrid(services) {
     if (bitrate.textContent !== newBitrate) bitrate.textContent = newBitrate;
     if (dls.textContent  !== newDls)     dls.textContent   = newDls;
 
-    // Classe active
+    // Classe active / disabled
     if (sid === selectedSid) card.classList.add('active');
     else card.classList.remove('active');
+    if (svc.enabled === false) card.classList.add('disabled');
+    else card.classList.remove('disabled');
+
+    // Switch toggle
+    const toggleInput = document.getElementById('svc-toggle-' + sid);
+    if (toggleInput) {
+      toggleInput.checked = svc.enabled !== false;
+    }
   });
+}
+
+async function toggleService(e, sid) {
+  e.stopPropagation();
+  try {
+    const r = await fetch(`/api/service/${encodeURIComponent(sid)}/toggle`, {method:'POST'});
+    const d = await r.json();
+    if (d.status !== 'ok') {
+      console.error('Toggle failed', d);
+      // Remettre le switch dans l'état précédent si erreur
+      const input = document.getElementById('svc-toggle-' + sid);
+      if (input) input.checked = !input.checked;
+    }
+  } catch(err) {
+    console.error('Toggle error', err);
+  }
 }
 
 function serviceDotClass(svc) {

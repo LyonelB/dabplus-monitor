@@ -189,6 +189,7 @@ class DABPlusMonitor:
                     state.language     = svc.get('language', '')
                     state.mode         = svc.get('mode', 'DAB+')
                     state.url_mp3      = svc.get('url_mp3', f'/mp3/{sid}')
+                    state.enabled      = bool(svc.get('enabled', 1))
                     state.present      = False  # sera confirmé par le premier poll
                     self.services[sid] = state
             logger.info(f"{len(cached)} service(s) chargé(s) depuis le cache DB (canal {channel})")
@@ -769,6 +770,10 @@ class DABPlusMonitor:
         with self.services_lock:
             for sid, state in self.services.items():
 
+                # Ignorer les services désactivés
+                if not state.enabled:
+                    continue
+
                 # ── Service absent du bouquet ─────────────────────────
                 if not state.present and state.lost_start:
                     absence = now - state.lost_start
@@ -838,6 +843,8 @@ class DABPlusMonitor:
             services_snap = dict(self.services)
         with self.uptime_lock:
             for sid, svc in services_snap.items():
+                if not svc.enabled:
+                    continue  # ne pas comptabiliser les services désactivés
                 if sid not in self.uptime_stats:
                     self.uptime_stats[sid] = {
                         'label':      svc.label,
@@ -1219,6 +1226,7 @@ class _ServiceState:
         self.lost_alert_sent = False
         self.silence_start   = None
         self.silence_alert_sent = False
+        self.enabled         = True   # False → pas d'alertes ni uptime
 
     def to_dict(self) -> dict:
         return {
@@ -1238,6 +1246,7 @@ class _ServiceState:
             'audio_srate':    self.audio_srate,
             'present':        self.present,
             'silence':        self.silence_start is not None,
+            'enabled':        self.enabled,
             'silence_alert':  self.silence_alert_sent,
             'lost_alert':     self.lost_alert_sent,
             'mode_full':      self.mode_full,

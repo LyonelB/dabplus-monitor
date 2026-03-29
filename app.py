@@ -539,6 +539,28 @@ def api_service_uptime(sid):
         logger.error(f"api_service_uptime : {e}")
         return jsonify([])
 
+@app.route('/api/service/<sid>/toggle', methods=['POST'])
+@csrf.exempt
+@auth.login_required
+def api_service_toggle(sid):
+    """Active ou désactive la surveillance d'un service."""
+    if not monitor:
+        return jsonify({'status': 'error'}), 503
+    try:
+        with monitor.services_lock:
+            state = monitor.services.get(sid)
+            if not state:
+                return jsonify({'status': 'error', 'message': 'Service inconnu'}), 404
+            state.enabled = not state.enabled
+            enabled = state.enabled
+        # Persister en DB
+        channel = monitor.ens_config.get('channel', '')
+        monitor.db.set_service_enabled(sid, channel, enabled)
+        logger.info(f"Service {sid} {'activé' if enabled else 'désactivé'}")
+        return jsonify({'status': 'ok', 'sid': sid, 'enabled': enabled})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/services/cached')
 @auth.login_required
 def api_services_cached():

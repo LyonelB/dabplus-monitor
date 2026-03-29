@@ -93,10 +93,16 @@ class DABDatabase:
                     language TEXT,
                     mode TEXT DEFAULT "DAB+",
                     url_mp3 TEXT,
+                    enabled INTEGER DEFAULT 1,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (sid, channel)
                 )
             ''')
+            # Migration : ajouter colonne enabled si elle n'existe pas
+            try:
+                cursor.execute('ALTER TABLE dab_services ADD COLUMN enabled INTEGER DEFAULT 1')
+            except Exception:
+                pass  # colonne déjà présente
             # Table uptime des services (persistance des compteurs 24h)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS service_uptime (
@@ -439,6 +445,23 @@ class DABDatabase:
         except Exception as e:
             logger.error(f"Erreur cleanup_uptime : {e}")
 
+    def set_service_enabled(self, sid: str, channel: str, enabled: bool):
+        """Active ou désactive la surveillance d'un service."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE dab_services SET enabled = ? WHERE sid = ? AND channel = ?
+                ''', (1 if enabled else 0, sid, channel))
+                if cursor.rowcount == 0:
+                    # Service pas encore en DB → l'insérer désactivé
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO dab_services (sid, channel, label, enabled)
+                        VALUES (?, ?, ?, ?)
+                    ''', (sid, channel, sid, 1 if enabled else 0))
+        except Exception as e:
+            logger.error(f"Erreur set_service_enabled : {e}")
+
     def save_service(self, sid: str, channel: str, label: str, **kwargs):
         """Enregistre ou met à jour un service DAB+ connu."""
         try:
@@ -477,7 +500,7 @@ class DABDatabase:
                 cursor = conn.cursor()
                 cursor.execute('''
                     SELECT sid, label, bitrate, prot_info, subchannel_id,
-                           language, mode, url_mp3
+                           language, mode, url_mp3, enabled
                     FROM dab_services
                     WHERE channel = ?
                     ORDER BY label
