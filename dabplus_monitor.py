@@ -350,14 +350,23 @@ class DABPlusMonitor:
                           'done 2>/dev/null || true')
 
                 self._fast_crash_count = 0
+
+                # Acquérir le lock PENDANT toute la pause pour bloquer
+                # tout autre thread qui tenterait de lancer welle-cli
+                acquired = self._launch_lock.acquire(blocking=True, timeout=5)
+                try:
+                    for _ in range(CIRCUIT_OPEN_DELAY):
+                        if not self.running:
+                            return
+                        time.sleep(1)
+                finally:
+                    if acquired:
+                        try:
+                            self._launch_lock.release()
+                        except RuntimeError:
+                            pass
+
                 self._is_restarting = False
-
-                # Attendre en vérifiant régulièrement si le service doit s'arrêter
-                for _ in range(CIRCUIT_OPEN_DELAY):
-                    if not self.running:
-                        return
-                    time.sleep(1)
-
                 # Relancer une seule fois après la pause
                 if self.running:
                     logger.info("Circuit breaker : tentative de relance après pause")
@@ -846,19 +855,57 @@ class DABPlusMonitor:
             for s in to_del:
                 del self.uptime_stats[s]
 
-            # Flush en DB toutes les 5 minutes (protection SD card)
+            # Flush daily uptime en DB toutes les 5 minutes
             if not hasattr(self, '_last_uptime_flush'):
                 self._last_uptime_flush = now
             if now - self._last_uptime_flush >= 300:
                 channel = self.ens_config.get('channel', '')
                 uptime_copy = dict(self.uptime_stats)
                 self._last_uptime_flush = now
-                # Flush dans un thread pour ne pas bloquer
                 threading.Thread(
                     target=self.db.flush_uptime,
                     args=(uptime_copy, channel),
                     daemon=True
                 ).start()
+
+            # Flush blocs 30 min : au changement de slot
+            # Slot courant = arrondi aux 30 min inférieures
+            slot_dt = datetime.now().replace(
+                minute=30 if datetime.now().minute >= 30 else 0,
+                second=0, microsecond=0
+            )
+            slot_str = slot_dt.strftime('%Y-%m-%d %H:%M')
+            if not hasattr(self, '_current_slot'):
+                self._current_slot = slot_str
+                self._slot_stats = {}  # {sid: {checks, present}}
+
+            if slot_str != self._current_slot:
+                # Nouveau slot → flush l'ancien en DB
+                channel = self.ens_config.get('channel', '')
+                slot_to_flush = self._current_slot
+                stats_to_flush = dict(self._slot_stats)
+                self._current_slot = slot_str
+                self._slot_stats = {}
+
+                def _do_flush(slot, stats, ch):
+                    for s, v in stats.items():
+                        self.db.flush_uptime_block(
+                            sid=s, channel=ch, slot=slot,
+                            checks=v['checks'], present=v['present']
+                        )
+                threading.Thread(
+                    target=_do_flush,
+                    args=(slot_to_flush, stats_to_flush, channel),
+                    daemon=True
+                ).start()
+
+            # Accumuler les stats du slot courant
+            for sid, svc in services_snap.items():
+                if sid not in self._slot_stats:
+                    self._slot_stats[sid] = {'checks': 0, 'present': 0}
+                self._slot_stats[sid]['checks'] += 1
+                if svc.present:
+                    self._slot_stats[sid]['present'] += 1
 
     # ═══════════════════════════════════════════════════════════════════════
     # Streaming Icecast

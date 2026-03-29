@@ -482,6 +482,63 @@ def proxy_slide(sid):
         logger.debug(f"Slide {sid} : {e}")
     return '', 404
 
+@app.route('/api/service/uptime/<sid>')
+@limiter.exempt
+@auth.login_required
+def api_service_uptime(sid):
+    """Retourne 48 blocs de 30min pour le bar-graphe de présence du service."""
+    if not monitor:
+        return jsonify([])
+    try:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        channel = monitor.ens_config.get('channel', '')
+
+        # Charger tous les blocs DB pour ce service
+        db_blocks = monitor.db.load_uptime_blocks(channel, hours=25)
+        svc_blocks = db_blocks.get(sid, {})
+
+        # Slot courant en mémoire
+        slot_stats = getattr(monitor, '_slot_stats', {}).get(sid)
+        current_slot = getattr(monitor, '_current_slot', None)
+
+        blocks = []
+        for i in range(47, -1, -1):
+            slot_dt = now - timedelta(minutes=30 * i)
+            # Arrondir au slot de 30 min
+            slot_dt = slot_dt.replace(
+                minute=30 if slot_dt.minute >= 30 else 0,
+                second=0, microsecond=0
+            )
+            slot_str = slot_dt.strftime('%Y-%m-%d %H:%M')
+            slot_end = slot_dt + timedelta(minutes=30)
+
+            if slot_str == current_slot and slot_stats:
+                # Bloc en cours : données mémoire
+                checks  = slot_stats['checks']
+                present = slot_stats['present']
+                pct = round(present / checks * 100, 1) if checks > 0 else None
+                status = 'current'
+            elif slot_str in svc_blocks:
+                v = svc_blocks[slot_str]
+                pct = round(v['present'] / v['checks'] * 100, 1) if v['checks'] > 0 else None
+                status = 'done'
+            else:
+                pct = None
+                status = 'no_data'
+
+            blocks.append({
+                'slot':   slot_str,
+                'end':    slot_end.isoformat(),
+                'pct':    pct,
+                'status': status,
+            })
+
+        return jsonify(blocks)
+    except Exception as e:
+        logger.error(f"api_service_uptime : {e}")
+        return jsonify([])
+
 @app.route('/api/services/cached')
 @auth.login_required
 def api_services_cached():

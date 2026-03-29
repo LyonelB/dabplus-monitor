@@ -182,31 +182,17 @@
             <div class="text-xs text-gray-400 mb-0.5">DLS (titre en cours)</div>
             <div class="text-sm font-medium text-gray-800 truncate" id="detail-dls">—</div>
           </div>
+          <!-- Bar-graphe présence 24h (48 blocs × 30min) -->
           <div>
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-              <span>Gauche</span><span id="detail-audio-l">— dBFS</span>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:#9ca3af;margin-bottom:4px">
+              <span>Présence 24h</span>
+              <span id="detail-uptime-pct">—</span>
             </div>
-            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-l" style="transition:width 0.15s linear"></div>
+            <div id="detail-uptime-bar" style="display:flex;gap:2px;height:20px;align-items:stretch">
+              <!-- rempli dynamiquement -->
             </div>
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-bottom:3px">
-              <span>Droite</span><span id="detail-audio-r">— dBFS</span>
-            </div>
-            <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
-              <div class="vu-bar w-0 bg-green-400" id="detail-bar-r" style="transition:width 0.15s linear"></div>
-            </div>
-          </div>
-          <!-- Niveaux captés (welle-cli) -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
-            <div style="background:#f9fafb;border-radius:6px;padding:4px 8px;text-align:center">
-              <div style="color:#9ca3af">L capté</div>
-              <div style="font-family:monospace;font-weight:600" id="detail-welle-l">—</div>
-            </div>
-            <div style="background:#f9fafb;border-radius:6px;padding:4px 8px;text-align:center">
-              <div style="color:#9ca3af">R capté</div>
-              <div style="font-family:monospace;font-weight:600" id="detail-welle-r">—</div>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:#cbd5e1;margin-top:2px">
+              <span>−24h</span><span>maintenant</span>
             </div>
           </div>
 
@@ -542,16 +528,7 @@ function updateServiceDetail(svc) {
   document.getElementById('detail-sid').textContent   = svc.sid   || '—';
   document.getElementById('detail-mode').textContent  = svc.mode  || svc.mode_full || '—';
   document.getElementById('detail-dls').textContent   = svc.dls   || '(pas de DLS)';
-  const vuL = svc.audio_l ?? -100;
-  const vuR = svc.audio_r ?? -100;
-  document.getElementById('detail-audio-l').textContent = vuL.toFixed(1) + ' dBFS';
-  document.getElementById('detail-audio-r').textContent = vuR.toFixed(1) + ' dBFS';
-  setBar('detail-bar-l', Math.max(0,Math.min(100,(vuL+60)/60*100)), '#22c55e');
-  setBar('detail-bar-r', Math.max(0,Math.min(100,(vuR+60)/60*100)), '#22c55e');
-  const wl = document.getElementById('detail-welle-l');
-  const wr = document.getElementById('detail-welle-r');
-  if (wl) wl.textContent = (svc.audio_l || -100).toFixed(1) + ' dBFS';
-  if (wr) wr.textContent = (svc.audio_r || -100).toFixed(1) + ' dBFS';
+  // VU-mètre remplacé par le bar-graphe de présence (voir loadServiceUptimeBar)
   document.getElementById('detail-bitrate').textContent    = svc.bitrate ? svc.bitrate+' kbps' : '—';
   document.getElementById('detail-prot').textContent       = svc.prot_info || '—';
   document.getElementById('detail-lang').textContent       = svc.language || '—';
@@ -603,7 +580,46 @@ function selectService(sid) {
   event?.currentTarget?.classList.add('active');
   document.getElementById('service-detail').style.display = 'block';
   updateServiceDetail(svc);
+  loadServiceUptimeBar(sid);
   preloadStream(sid, wasPlaying);
+}
+
+async function loadServiceUptimeBar(sid) {
+  const container = document.getElementById('detail-uptime-bar');
+  const pctEl = document.getElementById('detail-uptime-pct');
+  if (!container) return;
+  container.innerHTML = '<div style="color:#e2e8f0;font-size:10px;align-self:center">…</div>';
+  try {
+    const r = await fetch(`/api/service/uptime/${encodeURIComponent(sid)}`);
+    const blocks = await r.json();
+    if (!blocks.length) { container.innerHTML = ''; return; }
+
+    let totalPresent = 0, totalKnown = 0;
+    container.innerHTML = blocks.map(b => {
+      let color, title;
+      if (b.pct === null) {
+        color = '#e2e8f0'; title = 'Pas de données';
+      } else if (b.pct >= 95) {
+        color = '#22c55e'; totalPresent++; totalKnown++; title = `${b.pct}% présent`;
+      } else if (b.pct >= 50) {
+        color = '#f97316'; totalKnown++; title = `${b.pct}% présent`;
+      } else {
+        color = '#ef4444'; totalKnown++; title = `${b.pct}% présent`;
+      }
+      const start = new Date(b.start).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+      return `<div title="${start} — ${title}" style="flex:1;background:${color};border-radius:2px;cursor:default"></div>`;
+    }).join('');
+
+    if (totalKnown > 0) {
+      const pct = (totalPresent / totalKnown * 100).toFixed(1);
+      pctEl.textContent = pct + '%';
+      pctEl.style.color = pct >= 99 ? '#16a34a' : pct >= 90 ? '#ea580c' : '#dc2626';
+    } else {
+      pctEl.textContent = '—';
+    }
+  } catch(e) {
+    container.innerHTML = '';
+  }
 }
 
 function preloadStream(sid, autoPlay) {

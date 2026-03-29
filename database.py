@@ -114,6 +114,21 @@ class DABDatabase:
                 CREATE INDEX IF NOT EXISTS idx_uptime_date
                 ON service_uptime(date)
             ''')
+            # Table uptime par blocs de 30 minutes
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS service_uptime_blocks (
+                    sid TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    slot TEXT NOT NULL,
+                    checks INTEGER DEFAULT 0,
+                    present INTEGER DEFAULT 0,
+                    PRIMARY KEY (sid, channel, slot)
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_blocks_slot
+                ON service_uptime_blocks(slot)
+            ''')
             logger.info("Base de données initialisée")
     
     def save_audio_level(self, level_db, signal_ok):
@@ -300,6 +315,64 @@ class DABDatabase:
             logger.error(f"Erreur récupération alertes groupées: {e}")
             return []
     
+    def flush_uptime_block(self, sid: str, channel: str, slot: str,
+                            checks: int, present: int):
+        """Enregistre un bloc de 30 min pour un service."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO service_uptime_blocks
+                        (sid, channel, slot, checks, present)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(sid, channel, slot) DO UPDATE SET
+                        checks  = excluded.checks,
+                        present = excluded.present
+                ''', (sid, channel, slot, checks, present))
+        except Exception as e:
+            logger.error(f"Erreur flush_uptime_block : {e}")
+
+    def load_uptime_blocks(self, channel: str, hours: int = 24) -> dict:
+        """Charge les blocs de 30 min pour tous les services d'un canal.
+        Retourne dict {sid: {slot: {checks, present}}}
+        """
+        from datetime import datetime, timedelta
+        since = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M')
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT sid, slot, checks, present
+                    FROM service_uptime_blocks
+                    WHERE channel = ? AND slot >= ?
+                    ORDER BY slot
+                ''', (channel, since))
+                result = {}
+                for row in cursor.fetchall():
+                    sid = row['sid']
+                    if sid not in result:
+                        result[sid] = {}
+                    result[sid][row['slot']] = {
+                        'checks':  row['checks'],
+                        'present': row['present'],
+                    }
+                return result
+        except Exception as e:
+            logger.error(f"Erreur load_uptime_blocks : {e}")
+            return {}
+
+    def cleanup_uptime_blocks(self, days: int = 7):
+        """Supprime les blocs de plus de X jours."""
+        try:
+            from datetime import datetime, timedelta
+            cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M')
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'DELETE FROM service_uptime_blocks WHERE slot < ?', (cutoff,))
+        except Exception as e:
+            logger.error(f"Erreur cleanup_uptime_blocks : {e}")
+
     def flush_uptime(self, uptime_data: dict, channel: str):
         """Persiste les compteurs uptime en base (appelé toutes les 5 minutes).
         uptime_data : dict {sid: {label, checks, present, first_seen}}
