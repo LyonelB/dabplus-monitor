@@ -397,7 +397,8 @@ class DABPlusMonitor:
             try:
                 # Essayer d'abord /status (welle-monitor fork)
                 result = subprocess.run(
-                    ['curl', '-s', '--max-time', '2',
+                    ['curl', '-s', '--max-time', '2', '--no-keepalive',
+                     '-H', 'Connection: close',
                      '-o', '/dev/null', '-w', '%{http_code}',
                      f"{self.welle_url}/status"],
                     capture_output=True, text=True, timeout=4
@@ -407,7 +408,8 @@ class DABPlusMonitor:
                     return True
                 # Fallback /mux.json (welle-cli standard)
                 result = subprocess.run(
-                    ['curl', '-s', '--max-time', '2',
+                    ['curl', '-s', '--max-time', '2', '--no-keepalive',
+                     '-H', 'Connection: close',
                      '-o', '/dev/null', '-w', '%{http_code}',
                      f"{self.welle_url}/mux.json"],
                     capture_output=True, text=True, timeout=4
@@ -432,7 +434,8 @@ class DABPlusMonitor:
             try:
                 r = requests.get(
                     f"{self.welle_url}/mux.json",
-                    timeout=(3, 3)   # (connect_timeout, read_timeout) — hard limit sur les deux
+                    timeout=(3, 3),   # (connect_timeout, read_timeout) — hard limit sur les deux
+                    headers={"Connection": "close"}
                 )
                 if r.status_code == 200:
                     data = r.json()
@@ -1062,7 +1065,8 @@ class DABPlusMonitor:
         reset_ok = False
         try:
             result = subprocess.run(
-                ['curl', '-s', '-X', 'POST', '--max-time', '3',
+                ['curl', '-s', '-X', 'POST', '--max-time', '3', '--no-keepalive',
+                 '-H', 'Connection: close',
                  '-w', '%{http_code}', '-o', '/dev/null',
                  f"{self.welle_url}/reset"],
                 capture_output=True, text=True, timeout=5
@@ -1072,7 +1076,8 @@ class DABPlusMonitor:
                 time.sleep(8)
                 # Vérifier si le reset a suffi
                 check = subprocess.run(
-                    ['curl', '-s', '--max-time', '3',
+                    ['curl', '-s', '--max-time', '3', '--no-keepalive',
+                     '-H', 'Connection: close',
                      '-o', '/dev/null', '-w', '%{http_code}',
                      f"{self.welle_url}/status"],
                     capture_output=True, text=True, timeout=5
