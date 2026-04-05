@@ -30,7 +30,7 @@ from database import DABDatabase
 logger = logging.getLogger(__name__)
 
 # ── Timeouts et constantes ──────────────────────────────────────────────────
-WELLE_STARTUP_TIMEOUT = 15    # secondes pour que welle-cli soit prêt
+WELLE_STARTUP_TIMEOUT = 30    # secondes pour que welle-cli soit prêt
 POLL_RETRIES          = 3     # tentatives avant de déclarer welle-cli mort
 STARTUP_GRACE_PERIOD  = 180  # secondes après démarrage : pas d'alertes silence/absence
 
@@ -708,8 +708,11 @@ class DABPlusMonitor:
                 self._check_service_alerts()
                 self._update_uptime()
                 # Watchdog system espacé pour ne pas surcharger welle-cli
+                # Ne démarre qu'après 30s d'uptime pour laisser welle-cli s'initialiser
                 now = time.time()
-                if now - _last_sys_check >= _sys_check_interval:
+                startup_time = self.stats.get('start_time')
+                uptime_ok = startup_time and (datetime.now() - startup_time).total_seconds() >= 30
+                if uptime_ok and now - _last_sys_check >= _sys_check_interval:
                     # Dans un thread pour ne pas bloquer les alertes/uptime
                     threading.Thread(target=self._watchdog_system, daemon=True).start()
                     _last_sys_check = now
