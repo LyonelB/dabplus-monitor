@@ -1106,6 +1106,11 @@ class DABPlusMonitor:
             t.start()
             if self._wait_for_welle():
                 logger.info("Watchdog : welle-cli relancé avec succès")
+                # Réinitialiser la grace period pour éviter les fausses alertes
+                # après une relance watchdog (carousel pas encore passé partout)
+                with self.stats_lock:
+                    self.stats['start_time'] = datetime.now()
+                logger.info("Grace period réinitialisée après relance watchdog")
             else:
                 logger.error("Watchdog : welle-cli ne répond toujours pas après relance")
         finally:
