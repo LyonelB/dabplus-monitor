@@ -1128,20 +1128,56 @@ class DABPlusMonitor:
                 pass  # déjà libéré
 
     def get_uptime_stats(self) -> list:
-        """Retourne les stats de présence des services (24h)."""
+        """Retourne les stats de présence des services (24h).
+        Source unique : blocs DB (slots terminés) + slot courant en mémoire.
+        Même calcul que /api/service/uptime/<sid> pour cohérence avec le dashboard.
+        """
+        channel = self.ens_config.get('channel', '')
+
+        # Charger les blocs DB des 24 dernières heures (slots terminés)
+        try:
+            db_blocks = self.db.load_uptime_blocks(channel, hours=24)
+        except Exception:
+            db_blocks = {}
+
+        # Slot courant (non encore flushé en DB)
+        current_slot = getattr(self, '_current_slot', None)
+        slot_stats   = getattr(self, '_slot_stats', {})
+
+        # Labels depuis les services connus
+        with self.services_lock:
+            labels = {sid: svc.label for sid, svc in self.services.items()}
         with self.uptime_lock:
-            result = []
             for sid, v in self.uptime_stats.items():
-                pct = round(v['present'] / v['checks'] * 100, 1) if v['checks'] > 0 else 0
+                if sid not in labels:
+                    labels[sid] = v.get('label', sid)
+
+        # Agréger par service : blocs DB + slot courant
+        all_sids = set(db_blocks.keys()) | set(slot_stats.keys())
+        result = []
+        for sid in all_sids:
+            # Blocs DB
+            slots   = db_blocks.get(sid, {})
+            checks  = sum(v['checks']  for v in slots.values())
+            present = sum(v['present'] for v in slots.values())
+
+            # Ajouter le slot courant (non encore en DB)
+            if current_slot and sid in slot_stats:
+                checks  += slot_stats[sid].get('checks',  0)
+                present += slot_stats[sid].get('present', 0)
+
+            if checks > 0:
+                pct = round(present / checks * 100, 1)
                 result.append({
                     'sid':        sid,
-                    'label':      v['label'],
-                    'checks':     v['checks'],
-                    'present':    v['present'],
+                    'label':      labels.get(sid, sid),
+                    'checks':     checks,
+                    'present':    present,
                     'uptime_pct': pct,
-                    'first_seen': v['first_seen'],
+                    'first_seen': 0,
                 })
-            return sorted(result, key=lambda x: x['label'])
+
+        return sorted(result, key=lambda x: x['label'])
 
     def get_alert_history(self) -> list:
         """Retourne l'historique des alertes des 24 dernières heures."""
