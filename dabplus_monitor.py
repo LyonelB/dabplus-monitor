@@ -273,7 +273,18 @@ class DABPlusMonitor:
                     pass
                 self.welle_process = None
             os.system("pkill -9 welle-cli 2>/dev/null")
-            time.sleep(8)  # laisser le dongle USB se libérer (usb_claim_interface)
+            # Reset USB du dongle RTL-SDR via sysfs pour libérer le device
+            # après un crash ou un freeze prolongé (usb_claim_interface error -6)
+            os.system(
+                'for dev in /sys/bus/usb/devices/*/product; do '
+                '  if grep -qi RTL "$dev" 2>/dev/null; then '
+                '    echo 0 > $(dirname $dev)/authorized; '
+                '    sleep 2; '
+                '    echo 1 > $(dirname $dev)/authorized; '
+                '  fi; '
+                'done 2>/dev/null || true'
+            )
+            time.sleep(6)  # laisser le dongle USB se réinitialiser
 
             channel  = self.ens_config['channel']
             gain     = int(self.rtl_config.get('gain', -1))
@@ -937,10 +948,15 @@ class DABPlusMonitor:
         self.stream_process = None
         time.sleep(0.5)
 
+    # Durée max de streaming avant arrêt automatique (protection thermique dongle)
+    STREAM_MAX_DURATION = 15 * 60  # 15 minutes
+
     def _start_streaming(self):
         """
         Streame le service actif vers Icecast via ffmpeg.
         Source : /mp3/<SID> de welle-cli.
+        Arrêt automatique après STREAM_MAX_DURATION secondes pour protéger
+        le dongle RTL-SDR de la surchauffe (freeze USB après streaming prolongé).
         """
         if not self.active_sid:
             return
@@ -962,7 +978,20 @@ class DABPlusMonitor:
         logger.info(f"Streaming SID {self.active_sid} → Icecast")
 
         sid_at_start = self.active_sid
+        stream_start = time.time()
+
         while self.running and self.active_sid == sid_at_start:
+            # Arrêt automatique après STREAM_MAX_DURATION secondes
+            elapsed = time.time() - stream_start
+            if elapsed >= self.STREAM_MAX_DURATION:
+                logger.info(
+                    f"Streaming SID {self.active_sid} arrêté après "
+                    f"{int(elapsed//60)} min (protection thermique)"
+                )
+                self._kill_all_streaming()
+                self.active_sid = None
+                return
+
             try:
                 self.stream_process = subprocess.Popen(
                     cmd,
