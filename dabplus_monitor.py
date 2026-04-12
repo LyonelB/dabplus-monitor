@@ -197,7 +197,7 @@ class DABPlusMonitor:
 
         # Tuer les instances welle-cli orphelines
         os.system("pkill -9 welle-cli 2>/dev/null")
-        time.sleep(1)
+        time.sleep(8)  # laisser le dongle USB se libérer
 
         # Lancer welle-cli
         t = threading.Thread(target=self._launch_welle_cli, daemon=True)
@@ -273,7 +273,7 @@ class DABPlusMonitor:
                     pass
                 self.welle_process = None
             os.system("pkill -9 welle-cli 2>/dev/null")
-            time.sleep(1)  # laisser le dongle USB se libérer
+            time.sleep(8)  # laisser le dongle USB se libérer (usb_claim_interface)
 
             channel  = self.ens_config['channel']
             gain     = int(self.rtl_config.get('gain', -1))
