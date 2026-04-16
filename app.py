@@ -20,6 +20,23 @@ from auth import Auth
 
 load_dotenv()
 
+# Version depuis le tag git
+def _get_version():
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            capture_output=True, text=True, timeout=3,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return 'dev'
+
+APP_VERSION = _get_version()
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -87,6 +104,7 @@ def login():
             session['logged_in'] = True
             session['username'] = username
             session['token'] = _active_session_token
+            session['last_activity'] = time.time()
             logger.info(f"Nouvelle session : {username} — ancienne session révoquée")
             if request.is_json:
                 return jsonify({'status': 'success', 'redirect': '/'})
@@ -95,7 +113,7 @@ def login():
             if request.is_json:
                 return jsonify({'status': 'error', 'message': 'Identifiants incorrects'}), 401
             return render_template('login.html', error='Identifiants incorrects')
-    return render_template('login.html')
+    return render_template('login.html', app_version=APP_VERSION)
 
 @app.route('/logout')
 def logout():
@@ -106,6 +124,7 @@ def logout():
 def check_session_token():
     """Vérifie que le token de session est toujours valide.
     Si un autre utilisateur s'est connecté, l'ancien est redirigé vers /login.
+    Déconnexion automatique après 60 min d'inactivité.
     """
     global _active_session_token
     # Exclure les routes publiques
@@ -113,6 +132,22 @@ def check_session_token():
         return None
     if not session.get('logged_in'):
         return None
+
+    # Timeout inactivité 60 min
+    SESSION_TIMEOUT = 60 * 60  # 60 minutes
+    last_activity = session.get('last_activity', 0)
+    if time.time() - last_activity > SESSION_TIMEOUT:
+        session.clear()
+        logger.info("Session expirée — inactivité > 60 min")
+        if request.is_json or request.path.startswith('/api/'):
+            return jsonify({'status': 'error', 'message': 'Session expirée', 'redirect': '/login'}), 401
+        return redirect(url_for('login') + '?reason=session_timeout')
+
+    # Les routes SSE et API ne mettent pas à jour last_activity
+    # pour éviter que le streaming maintienne la session active indéfiniment
+    if not request.path.startswith('/api/stream') and not request.path.startswith('/slide'):
+        session['last_activity'] = time.time()
+
     # Vérifier que le token de session correspond au token actif
     session_token = session.get('token')
     if _active_session_token and session_token != _active_session_token:
