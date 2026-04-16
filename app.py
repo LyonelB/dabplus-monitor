@@ -134,14 +134,16 @@ def check_session_token():
         return None
 
     # Timeout inactivité 60 min
+    # Les routes SSE ne sont pas soumises au timeout — elles tournent en continu
     SESSION_TIMEOUT = 60 * 60  # 60 minutes
-    last_activity = session.get('last_activity', 0)
-    if time.time() - last_activity > SESSION_TIMEOUT:
-        session.clear()
-        logger.info("Session expirée — inactivité > 60 min")
-        if request.is_json or request.path.startswith('/api/'):
-            return jsonify({'status': 'error', 'message': 'Session expirée', 'redirect': '/login'}), 401
-        return redirect(url_for('login') + '?reason=session_timeout')
+    if not request.path.startswith('/api/stream') and not request.path.startswith('/slide'):
+        last_activity = session.get('last_activity', 0)
+        if time.time() - last_activity > SESSION_TIMEOUT:
+            session.clear()
+            logger.info("Session expirée — inactivité > 60 min")
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({'status': 'error', 'message': 'Session expirée', 'redirect': '/login'}), 401
+            return redirect(url_for('login') + '?reason=session_timeout')
 
     # Les routes SSE et API ne mettent pas à jour last_activity
     # pour éviter que le streaming maintienne la session active indéfiniment
