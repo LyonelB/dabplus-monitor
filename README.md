@@ -12,17 +12,18 @@ DAB+ Monitor permet de surveiller en continu un multiplex DAB+ : niveaux audio, 
 - **Grille des services** : tous les services du bouquet avec niveaux audio et DLS
 - **Panneau de détail** : niveaux L/R, slideshow MOT, compteurs d'erreurs AAC/Frame/RS, infos techniques
 - **Player audio intégré** : écoute du service sélectionné via Icecast2
-- **Alertes email** : silence audio, perte de service, ensemble dégradé
+- **Mode veille automatique** : arrêt du streaming après 15 min, surveillance seule active
+- **Alertes email** : silence audio, perte de service, ensemble dégradé (avec rate limiting)
 - **Scanner Band III** : découverte automatique des multiplex disponibles
 - **Statistiques uptime** : taux de présence de chaque service sur 24h
-- **Historique alertes** : 24h glissantes
+- **Historique alertes** : 24h glissantes + base de données persistante
 - **Export/import de configuration**
-- **Authentification** par login/mot de passe
+- **Authentification** par login/mot de passe (session unique)
 
 ## Architecture
 
 ```
-RTL-SDR Blog V4
+RTL-SDR (NooElec NESDR SmartEE recommandé)
       ↓
 welle-cli (fork welle-monitor)
       ↓ HTTP API /mux.json, /mp3/<SID>
@@ -35,9 +36,15 @@ DABPlusMonitor (Python)
 
 ## Matériel testé
 
-- Raspberry Pi 4 (4 Go RAM)
-- RTL-SDR Blog V4 (Rafael Micro R828D)
-- Canal 9A — 202.928 MHz — LA ROCHE SUR YON
+| Matériel | Statut | Notes |
+|----------|--------|-------|
+| Raspberry Pi 4 (4 Go RAM) | ✅ Recommandé | Configuration de référence |
+| NooElec NESDR SmartEE (R820T) | ✅ Recommandé | SNR élevé, stable 24h/24 |
+| RTL-SDR Blog V4 (R828D) | ⚠️ À tester | Instabilité USB observée après plusieurs heures ; peut nécessiter le script de reset USB |
+| Hub USB alimenté (Lindy 43228) | ✅ Recommandé | Alimentation séparée pour le dongle RTL-SDR |
+| Canal 9A — 202.928 MHz | ✅ Testé | LA ROCHE SUR YON (0xf030) |
+
+> **Note RTL-SDR Blog V4** : des instabilités USB ont été observées après plusieurs heures de fonctionnement continu avec le Blog V4 sur Pi4. Le NooElec NESDR SmartEE (R820T) est plus stable en usage 24h/24. Le Blog V4 peut fonctionner avec le script de reset USB (`/usr/local/bin/rtlsdr-usb-reset.sh`) configuré en sudoers.
 
 ## Prérequis logiciels
 
@@ -62,7 +69,29 @@ make -j4
 sudo cp welle-cli /usr/bin/welle-cli
 ```
 
-### 2. Icecast2
+### 2. Script de reset USB (recommandé)
+
+Nécessaire pour le RTL-SDR Blog V4, optionnel pour les autres dongles :
+
+```bash
+sudo tee /usr/local/bin/rtlsdr-usb-reset.sh > /dev/null << 'EOF'
+#!/bin/bash
+for dev in /sys/bus/usb/devices/*/product; do
+  if grep -qi RTL "$dev" 2>/dev/null; then
+    devpath=$(dirname "$dev")
+    echo 0 > "$devpath/authorized"
+    sleep 3
+    echo 1 > "$devpath/authorized"
+  fi
+done
+EOF
+sudo chmod +x /usr/local/bin/rtlsdr-usb-reset.sh
+echo 'graffiti ALL=(ALL) NOPASSWD: /usr/local/bin/rtlsdr-usb-reset.sh' | \
+  sudo tee /etc/sudoers.d/rtlsdr-reset
+sudo chmod 440 /etc/sudoers.d/rtlsdr-reset
+```
+
+### 3. Icecast2
 
 ```bash
 sudo apt install icecast2
@@ -70,7 +99,7 @@ sudo apt install icecast2
 
 Configurer `/etc/icecast2/icecast.xml` avec un mountpoint `/dabmonitor`.
 
-### 3. DAB+ Monitor
+### 4. DAB+ Monitor
 
 ```bash
 git clone https://github.com/LyonelB/dabplus-monitor.git
@@ -91,7 +120,7 @@ Générer les credentials :
 python3 -c "from auth import Auth; a = Auth(); a.set_password('admin', 'votre_mot_de_passe')"
 ```
 
-### 4. Service systemd
+### 5. Service systemd
 
 ```bash
 sudo cp dabplus-monitor.service /etc/systemd/system/
@@ -137,8 +166,10 @@ Le fichier `config.json` contient :
     "smtp_server": "smtp.example.com",
     "smtp_port": 587,
     "sender_email": "monitor@example.com",
-    "sender_password": "password",
-    "recipient_emails": ["admin@example.com"]
+    "sender_password": "app_password_16_chars",
+    "recipient_emails": ["admin@example.com"],
+    "cooldown_minutes": 30,
+    "max_alerts_per_hour": 20
   }
 }
 ```
@@ -148,15 +179,32 @@ Le fichier `config.json` contient :
 - `0` : mode `-D` (décode tous les services simultanément) — ~300% CPU sur Pi4
 - `1` : mode `-C 1` (carousel, un service à la fois) — ~65% CPU sur Pi4 ✅ recommandé
 
+### Alertes email
+
+Le mot de passe doit être un **mot de passe d'application** (App Password) et non le mot de passe du compte. Pour Gmail : Compte Google → Sécurité → Validation en deux étapes → Mots de passe des applications.
+
 ## Dépendance welle-monitor
 
 Ce projet utilise [welle-monitor](https://github.com/LyonelB/welle-monitor), un fork de [welle.io](https://github.com/AlbrechtL/welle.io) avec des améliorations spécifiques au monitoring 24h/24 :
 
 - `std::timed_mutex` sur `rx_mut` : résout le freeze HTTP en signal dégradé
-- `GET /status` : endpoint léger pour le watchdog
+- `GET /status` : endpoint léger pour le watchdog, jamais bloquant
 - `POST /reset` : redémarrage du décodeur sans tuer le processus
 - `POST /carousel/pin/<sid>` : force le décodage immédiat d'un service
 - `server_time` et `current_carousel_sid` dans `mux.json`
+- `timed_mutex` dans `handle_phs()` : évite le freeze du thread de gestion des services
+
+> Une issue a été ouverte sur le dépôt upstream : [welle.io #913](https://github.com/AlbrechtL/welle.io/issues/913) — freeze `/mux.json` après ~92 min en mode carousel.
+
+## Logs
+
+| Fichier | Contenu |
+|---------|---------|
+| `logs/gunicorn-error.log` | Logs applicatifs Python (INFO/WARNING/ERROR) |
+| `logs/welle-cli.log` | Stdout/stderr de welle-cli |
+| `logs/access.log` | Accès HTTP Gunicorn |
+
+Rotation quotidienne via logrotate (`/etc/logrotate.d/dabplus-monitor`), 7 jours, compression.
 
 ## Licence
 
