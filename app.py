@@ -42,6 +42,12 @@ monitor = None
 scanner = DABScanner()  # charge scan_results.json si disponible
 stats_cache = {'data': None, 'timestamp': 0}
 
+# Token de session unique — "le dernier connecté prend la main"
+# Un seul utilisateur actif à la fois. Quand un nouvel utilisateur
+# se connecte, l'ancien token est révoqué et sa session devient invalide.
+import secrets
+_active_session_token = None
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SSE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,8 +81,13 @@ def login():
             username = request.form.get('username')
             password = request.form.get('password')
         if auth.verify_credentials(username, password):
+            global _active_session_token
+            # Générer un nouveau token — révoque automatiquement l'ancienne session
+            _active_session_token = secrets.token_hex(32)
             session['logged_in'] = True
             session['username'] = username
+            session['token'] = _active_session_token
+            logger.info(f"Nouvelle session : {username} — ancienne session révoquée")
             if request.is_json:
                 return jsonify({'status': 'success', 'redirect': '/'})
             return redirect('/')
@@ -90,6 +101,26 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+@app.before_request
+def check_session_token():
+    """Vérifie que le token de session est toujours valide.
+    Si un autre utilisateur s'est connecté, l'ancien est redirigé vers /login.
+    """
+    global _active_session_token
+    # Exclure les routes publiques
+    if request.endpoint in ('login', 'static', 'get_csrf_token', None):
+        return None
+    if not session.get('logged_in'):
+        return None
+    # Vérifier que le token de session correspond au token actif
+    session_token = session.get('token')
+    if _active_session_token and session_token != _active_session_token:
+        session.clear()
+        logger.info("Session révoquée — nouvel utilisateur connecté")
+        if request.is_json or request.path.startswith('/api/'):
+            return jsonify({'status': 'error', 'message': 'Session expirée', 'redirect': '/login'}), 401
+        return redirect(url_for('login') + '?reason=session_expired')
 
 @app.route('/api/csrf-token')
 def get_csrf_token():
@@ -599,6 +630,7 @@ def api_logs():
         return jsonify({'logs': f'Erreur : {e}'}), 500
 
 @app.route('/api/stats/uptime')
+@limiter.exempt
 @auth.login_required
 def api_uptime():
     if monitor:

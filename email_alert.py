@@ -24,7 +24,11 @@ class EmailAlert:
         self.frequency = str(config.get('ensemble', {}).get('frequency_mhz', '')) + ' MHz'
 
         self.last_alert_time = None
-        self.cooldown = timedelta(minutes=self.config.get('cooldown_minutes', 1))  # 1 minute par défaut
+        self.cooldown = timedelta(minutes=self.config.get('cooldown_minutes', 1))
+        # Rate limit global : max N emails par heure toutes alertes confondues
+        self._hourly_count = 0
+        self._hourly_reset = datetime.now()
+        self._max_per_hour = self.config.get('max_alerts_per_hour', 20)
 
     def can_send_alert(self):
         """Vérifie si on peut envoyer une alerte (cooldown)"""
@@ -44,7 +48,19 @@ class EmailAlert:
             details: Détails de l'alerte
             skip_cooldown: Si True, ignore le cooldown (pour les rétablissements)
         """
+        # Rate limit global : max _max_per_hour emails/heure
+        now = datetime.now()
+        if (now - self._hourly_reset).total_seconds() >= 3600:
+            self._hourly_count = 0
+            self._hourly_reset = now
+        if self._hourly_count >= self._max_per_hour:
+            logger.warning(f"Rate limit atteint ({self._max_per_hour}/h) — alerte non envoyée : {alert_type}")
+            return False
+
         # Ignorer le cooldown si c'est un rétablissement OU si skip_cooldown=True
+        if not self.config['enabled']:
+            logger.debug(f"Alertes email désactivées — alerte ignorée : {alert_type}")
+            return False
         if "rétabli" in alert_type.lower() or skip_cooldown:
             logger.info(f"Envoi de l'alerte '{alert_type}' (cooldown ignoré)")
         elif not self.can_send_alert():
@@ -131,7 +147,8 @@ Système de surveillance FM - RTL-SDR
                 server.sendmail(self.config['sender_email'], self.config['recipient_emails'], msg.as_string())
 
             self.last_alert_time = datetime.now()
-            logger.info(f"Alerte email envoyée: {alert_type}")
+            self._hourly_count += 1
+            logger.info(f"Alerte email envoyée: {alert_type} ({self._hourly_count}/{self._max_per_hour} cette heure)")
             return True
 
         except Exception as e:

@@ -105,9 +105,12 @@ class DABPlusMonitor:
             'gain':        _deque(),
         }
         self._rf_buf_lock = threading.Lock()
-        self._relaunch_lock = threading.Lock()  # empêche les relances simultanées
-        self._launch_lock   = threading.Lock()  # empêche les lancements welle-cli simultanés
-        self._is_restarting = False               # flag : une relance est en cours
+        self._relaunch_lock    = threading.Lock()  # empêche les relances simultanées
+        self._launch_lock      = threading.Lock()  # empêche les lancements welle-cli simultanés
+        self._is_restarting    = False             # flag : une relance est en cours
+        self._fast_crash_count = 0                 # compteur crashs rapides (< 3s)
+        self._fast_crash_lock  = threading.Lock()  # protection du compteur
+        self._veille_mode      = False             # True = mode veille (streaming arrêté, aucun service actif)
 
         # ── Stats exposées à l'API ──────────────────────────────────────
         self.stats_lock  = threading.Lock()
@@ -273,18 +276,12 @@ class DABPlusMonitor:
                     pass
                 self.welle_process = None
             os.system("pkill -9 welle-cli 2>/dev/null")
-            # Reset USB du dongle RTL-SDR via sysfs pour libérer le device
-            # après un crash ou un freeze prolongé (usb_claim_interface error -6)
-            os.system(
-                'for dev in /sys/bus/usb/devices/*/product; do '
-                '  if grep -qi RTL "$dev" 2>/dev/null; then '
-                '    echo 0 > $(dirname $dev)/authorized; '
-                '    sleep 2; '
-                '    echo 1 > $(dirname $dev)/authorized; '
-                '  fi; '
-                'done 2>/dev/null || true'
-            )
-            time.sleep(6)  # laisser le dongle USB se réinitialiser
+            # Reset USB via script root (sudoers).
+            # Le reset sysfs (echo 0/1 > authorized) nécessite root — le service
+            # tourne en tant que graffiti donc ça échouait silencieusement.
+            # Prérequis : /etc/sudoers.d/rtlsdr-reset configuré.
+            os.system("sudo /usr/local/bin/rtlsdr-usb-reset.sh 2>/dev/null || true")
+            time.sleep(12)  # laisser le dongle se réinitialiser complètement
 
             channel  = self.ens_config['channel']
             gain     = int(self.rtl_config.get('gain', -1))
@@ -303,12 +300,20 @@ class DABPlusMonitor:
 
             logger.info(f"Lancement : {cmd}")
 
+            # stderr redirigé vers fichier — évite le deadlock du pipe PIPE
+            # quand le buffer de 64KB se remplit (cause probable du crash 92 min)
+            welle_log_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'logs', 'welle-cli.log'
+            )
+            welle_log_file = open(welle_log_path, 'a')
+
             self.welle_process = subprocess.Popen(
                 cmd,
                 shell=True,
                 executable='/bin/bash',
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=welle_log_file,
+                stderr=welle_log_file,
             )
 
             # Libérer le lock dès que welle-cli est lancé
@@ -334,16 +339,15 @@ class DABPlusMonitor:
         # état incohérent. On arrête tout pendant CIRCUIT_OPEN_DELAY secondes
         # puis on réessaie une seule fois. Pas de boucle agressive.
         CIRCUIT_OPEN_DELAY = 300   # 5 minutes d'attente quand le dongle est mort
-        FAST_CRASH_THRESHOLD = 5   # crashs rapides avant d'ouvrir le circuit
-        FAST_CRASH_DELAY = 15      # délai entre chaque crash rapide
+        FAST_CRASH_THRESHOLD = 3   # crashs rapides avant d'ouvrir le circuit (réduit de 5 à 3)
+        FAST_CRASH_DELAY = 20      # délai entre chaque crash rapide (augmenté de 15 à 20s)
 
         crash_duration = time.time() - launch_time
 
         if crash_duration < 3:
-            # Crash rapide : incrémenter le compteur (protégé par le launch_lock
-            # qui est déjà libéré, mais _fast_crash_count est sur self)
-            with threading.Lock():
-                self._fast_crash_count = getattr(self, '_fast_crash_count', 0) + 1
+            # Crash rapide : incrémenter le compteur avec le bon lock
+            with self._fast_crash_lock:
+                self._fast_crash_count += 1
 
             logger.warning(f"welle-cli crash rapide ({crash_duration:.1f}s) — "
                            f"compteur : {self._fast_crash_count}")
@@ -354,12 +358,8 @@ class DABPlusMonitor:
                     f"Circuit breaker : {self._fast_crash_count} crashs rapides — "
                     f"pause {CIRCUIT_OPEN_DELAY}s avant prochaine tentative"
                 )
-                # Reset USB du dongle via sysfs
-                os.system('for dev in /sys/bus/usb/devices/*/product; do '
-                          'grep -q RTL "$dev" 2>/dev/null && '
-                          'echo 0 > $(dirname $dev)/authorized && sleep 2 && '
-                          'echo 1 > $(dirname $dev)/authorized; '
-                          'done 2>/dev/null || true')
+                # Reset USB via script root
+                os.system("sudo /usr/local/bin/rtlsdr-usb-reset.sh 2>/dev/null || true")
 
                 self._fast_crash_count = 0
 
@@ -438,14 +438,23 @@ class DABPlusMonitor:
     # ═══════════════════════════════════════════════════════════════════════
 
     def _poll_loop(self):
-        """Polling régulier de /mux.json."""
+        """Polling régulier de /mux.json.
+
+        Stratégie de tolérance aux pannes :
+        - /mux.json peut freezer sur le mutex interne de welle-cli (rx_mut)
+          même quand welle-cli décode correctement.
+        - /status est léger et ne prend JAMAIS le mutex → répond toujours.
+        - Si /mux.json timeout mais /status répond alive:true → welle-cli
+          est vivant, on NE relance PAS. On attend que le mutex se libère.
+        - On ne relance que si /status est aussi KO (welle-cli vraiment mort).
+        """
         fail_count = 0
-        HARD_RESTART_AFTER = 5  # relancer welle-cli après N échecs consécutifs
+        HARD_RESTART_AFTER = 5  # échecs /mux.json avant de vérifier /status
         while self.running:
             try:
                 r = requests.get(
                     f"{self.welle_url}/mux.json",
-                    timeout=(3, 3),   # (connect_timeout, read_timeout) — hard limit sur les deux
+                    timeout=(3, 3),   # (connect_timeout, read_timeout) — hard limit
                     headers={"Connection": "close"}
                 )
                 if r.status_code == 200:
@@ -464,13 +473,50 @@ class DABPlusMonitor:
                     self.rf_metrics['snr'] = 0.0
                     self.rf_metrics['fic_quality'] = 0.0
 
-            # Après HARD_RESTART_AFTER échecs → relance welle-cli sans attendre le watchdog
-            # Ne lancer qu'un seul watchdog à la fois grâce au flag _is_restarting
+            # Après HARD_RESTART_AFTER échecs → vérifier /status avant de relancer
+            # Si /status répond alive:true, welle-cli est vivant mais /mux.json
+            # est bloqué sur rx_mut — ne pas tuer welle-cli inutilement.
             if fail_count >= HARD_RESTART_AFTER and not self._is_restarting:
-                logger.warning(f"Poll : {fail_count} échecs consécutifs — relance welle-cli")
-                fail_count = POLL_RETRIES  # garder un niveau d'alerte sans respammer
-                self._is_restarting = True
-                threading.Thread(target=self._watchdog_system, daemon=True).start()
+                status_alive = False
+                try:
+                    sr = requests.get(
+                        f"{self.welle_url}/status",
+                        timeout=(2, 2),
+                        headers={"Connection": "close"}
+                    )
+                    if sr.status_code == 200:
+                        status_data = sr.json()
+                        status_alive = bool(status_data.get('alive', False))
+                except Exception:
+                    status_alive = False
+
+                if status_alive:
+                    # welle-cli décode — /mux.json est temporairement bloqué
+                    # sur rx_mut. On conserve les métriques RF depuis /status.
+                    logger.warning(
+                        f"Poll : {fail_count} échecs /mux.json mais "
+                        f"/status alive — mutex occupé, pas de relance"
+                    )
+                    try:
+                        sr2 = requests.get(
+                            f"{self.welle_url}/status",
+                            timeout=(2, 2),
+                            headers={"Connection": "close"}
+                        )
+                        if sr2.status_code == 200:
+                            sd = sr2.json()
+                            with self.rf_lock:
+                                self.rf_metrics['snr'] = float(sd.get('snr', 0))
+                            # Ne pas remettre fail_count à 0 — on continue à surveiller
+                    except Exception:
+                        pass
+                    fail_count = HARD_RESTART_AFTER  # ne pas respammer le warning
+                else:
+                    # /status KO aussi → welle-cli est vraiment mort
+                    logger.warning(f"Poll : {fail_count} échecs consécutifs — relance welle-cli")
+                    fail_count = POLL_RETRIES  # garder un niveau d'alerte sans respammer
+                    self._is_restarting = True
+                    threading.Thread(target=self._watchdog_system, daemon=True).start()
 
             time.sleep(self.poll_interval)
 
@@ -598,7 +644,8 @@ class DABPlusMonitor:
                     self.services[sid] = _ServiceState(sid, label)
                     logger.info(f"Nouveau service découvert : {label} ({sid})")
                     # Démarrer le VU-mètre sur le premier vrai service si aucun actif
-                    if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
+                    # (sauf en mode veille — l'utilisateur doit choisir explicitement)
+                    if not self.active_sid and not self._veille_mode and len(label) > 2 and label not in ('..', '.'):
                         self.active_sid = sid
                         logger.info(f"Service VU-mètre par défaut : {label}")
                     # Sauvegarder en DB pour les prochains démarrages
@@ -620,7 +667,8 @@ class DABPlusMonitor:
                     if self.services[sid].label != label and label not in ('..', '.', ''):
                         self.services[sid].label = label
                     # Démarrer le VU-mètre sur le premier vrai service si aucun actif
-                    if not self.active_sid and len(label) > 2 and label not in ('..', '.'):
+                    # (sauf en mode veille)
+                    if not self.active_sid and not self._veille_mode and len(label) > 2 and label not in ('..', '.'):
                         self.active_sid = sid
                         logger.info(f"Service VU-mètre par défaut : {label}")
 
@@ -981,17 +1029,6 @@ class DABPlusMonitor:
         stream_start = time.time()
 
         while self.running and self.active_sid == sid_at_start:
-            # Arrêt automatique après STREAM_MAX_DURATION secondes
-            elapsed = time.time() - stream_start
-            if elapsed >= self.STREAM_MAX_DURATION:
-                logger.info(
-                    f"Streaming SID {self.active_sid} arrêté après "
-                    f"{int(elapsed//60)} min (protection thermique)"
-                )
-                self._kill_all_streaming()
-                self.active_sid = None
-                return
-
             try:
                 self.stream_process = subprocess.Popen(
                     cmd,
@@ -1002,13 +1039,41 @@ class DABPlusMonitor:
                 if not hasattr(self, '_stream_pids'):
                     self._stream_pids = []
                 self._stream_pids.append(self.stream_process.pid)
-                self.stream_process.wait()
+
+                # Polling toutes les secondes au lieu de wait() bloquant
+                # → permet de vérifier le timeout STREAM_MAX_DURATION en continu
+                while self.stream_process.poll() is None:
+                    if self.active_sid != sid_at_start or not self.running:
+                        break
+                    elapsed = time.time() - stream_start
+                    if elapsed >= self.STREAM_MAX_DURATION:
+                        logger.info(
+                            f"Streaming SID {sid_at_start} arrêté après "
+                            f"{int(elapsed//60)} min — passage en mode veille"
+                        )
+                        self.stream_process.kill()
+                        self._kill_all_streaming()
+                        self._enter_veille()
+                        return
+                    time.sleep(1)
+
                 if self.active_sid != sid_at_start:
                     break
             except Exception as e:
                 logger.error(f"Erreur streaming : {e}")
             if self.running and self.active_sid == sid_at_start:
                 time.sleep(3)
+
+    def _enter_veille(self):
+        """Passe en mode veille : arrêt complet du streaming,
+        aucun service sélectionné, surveillance seule active.
+        L'interface doit afficher un état neutre (pas de player, pas de slide).
+        Sortie du mode veille : switch_service() avec un SID valide.
+        """
+        self._veille_mode = True
+        self.active_sid   = ''   # chaîne vide = veille (None déclencherait auto-sélection)
+        self._kill_all_streaming()
+        logger.info("Mode veille activé — surveillance seule, aucun service sélectionné")
 
     def switch_service(self, sid: str):
         """Change le service streamé vers Icecast."""
@@ -1017,6 +1082,7 @@ class DABPlusMonitor:
             return
         try:
             logger.info(f"Switch service → {sid}")
+            self._veille_mode = False   # sortie du mode veille
             self.active_sid = sid
 
             # Demander à welle-cli (welle-monitor fork) de décoder immédiatement
@@ -1227,6 +1293,7 @@ class DABPlusMonitor:
 
         stats['ensemble_ok']   = self.ensemble_ok
         stats['active_sid']    = self.active_sid
+        stats['veille_mode']   = self._veille_mode
         stats['channel']       = self.ens_config['channel']
         stats['frequency_mhz'] = self.ens_config['frequency_mhz']
 
