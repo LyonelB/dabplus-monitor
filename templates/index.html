@@ -369,6 +369,93 @@ updateClock();
 // ═══════════════════════════════════════════════════════════════
 // SSE stats monitoring
 // ═══════════════════════════════════════════════════════════════
+// Détection session expirée — le dernier connecté prend la main
+function showSessionExpired() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:white;border-radius:12px;padding:32px;text-align:center;max-width:360px">
+    <div style="font-size:2rem;margin-bottom:12px">🔒</div>
+    <div style="font-size:1rem;font-weight:600;color:#1e293b;margin-bottom:8px">Session terminée</div>
+    <div style="font-size:0.875rem;color:#64748b;margin-bottom:20px">Un autre utilisateur s'est connecté.<br>Votre session a été révoquée.</div>
+    <button onclick="window.location='/login'" style="background:#2563eb;color:white;border:none;border-radius:8px;padding:10px 24px;font-size:0.875rem;cursor:pointer;font-weight:600">Se reconnecter</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  setTimeout(() => { window.location = '/login'; }, 5000);
+}
+
+async function checkSession() {
+  try {
+    const r = await fetch('/api/stats');
+    if (r.status === 401) {
+      const d = await r.json().catch(() => ({}));
+      if (d.message === 'Session expirée') showSessionExpired();
+    }
+  } catch(e) {}
+}
+setInterval(checkSession, 30000);
+
+// ── Timeouts d'inactivité ──────────────────────────────────────────────────
+// 15 min → stream coupé + service désélectionné
+// 1h    → déconnexion complète
+const STREAM_TIMEOUT_MS   = 15 * 60 * 1000;  // 15 minutes
+const SESSION_TIMEOUT_MS  = 60 * 60 * 1000;  // 1 heure
+
+let streamTimeoutId  = null;
+let sessionTimeoutId = null;
+
+function resetInactivityTimers() {
+  // Réinitialiser le timer stream
+  clearTimeout(streamTimeoutId);
+  streamTimeoutId = setTimeout(() => {
+    // Couper le stream si actif
+    if (isPlaying) stopPlay();
+    // Désélectionner le service dans tous les cas
+    if (selectedSid) {
+      selectedSid = null;
+      document.querySelectorAll('.service-card').forEach(c => c.classList.remove('active'));
+      const detail = document.getElementById('service-detail');
+      if (detail) detail.style.display = 'none';
+      showInactivityToast('Inactivité de 15 min — service désélectionné');
+    }
+  }, STREAM_TIMEOUT_MS);
+
+  // Réinitialiser le timer session
+  clearTimeout(sessionTimeoutId);
+  sessionTimeoutId = setTimeout(() => {
+    showSessionTimeout();
+  }, SESSION_TIMEOUT_MS);
+}
+
+function showInactivityToast(msg) {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:white;padding:12px 18px;border-radius:8px;font-size:0.8125rem;z-index:9999;opacity:0;transition:opacity 0.3s';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; });
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
+}
+
+function showSessionTimeout() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:white;border-radius:12px;padding:32px;text-align:center;max-width:360px">
+    <div style="font-size:2rem;margin-bottom:12px">⏱️</div>
+    <div style="font-size:1rem;font-weight:600;color:#1e293b;margin-bottom:8px">Session expirée</div>
+    <div style="font-size:0.875rem;color:#64748b;margin-bottom:20px">Déconnexion après 1h d\'inactivité.</div>
+    <button onclick="window.location='/logout'" style="background:#2563eb;color:white;border:none;border-radius:8px;padding:10px 24px;font-size:0.875rem;cursor:pointer;font-weight:600">Se reconnecter</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  setTimeout(() => { window.location = '/logout'; }, 5000);
+}
+
+// Démarrer les timers au chargement
+resetInactivityTimers();
+
+// Réinitialiser sur toute interaction utilisateur
+['click', 'keydown', 'mousemove', 'touchstart'].forEach(evt =>
+  document.addEventListener(evt, resetInactivityTimers, {passive: true})
+);
+
 function connectStats() {
   if (statsEventSource) statsEventSource.close();
   statsEventSource = new EventSource('/api/stream/stats');
