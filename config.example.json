@@ -1,0 +1,48 @@
+{
+  "ensemble": {
+    "name": "LA ROCHE SUR YON",
+    "channel": "9A",
+    "frequency_mhz": 202.928
+  },
+  "rtl_sdr": {
+    "gain": -1,
+    "device_index": 0,
+    "ppm_error": 0
+  },
+  "welle_cli": {
+    "port": 7979,
+    "carousel_size": 1,
+    "poll_interval": 2
+  },
+  "monitoring": {
+    "fic_quality_threshold": 80,
+    "snr_threshold": 5,
+    "audio_silence_threshold": -60,
+    "audio_silence_duration": 30,
+    "service_loss_duration": 60,
+    "watched_services": []
+  },
+  "streaming": {
+    "enabled": true,
+    "default_sid": "",
+    "icecast_url": "icecast://source:password@localhost:8000/dabmonitor",
+    "output_rate": "44100",
+    "bitrate": "128k"
+  },
+  "email": {
+    "enabled": false,
+    "sender_email": "monitor@example.com",
+    "sender_password": "your_app_password_16chars",
+    "recipient_emails": [
+      "admin@example.com"
+    ],
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "use_tls": true,
+    "cooldown_minutes": 30
+  },
+  "auth": {
+    "username": "admin",
+    "password_hash": "$2b$12$kodXzAb5dLwJO9Y.X9Rq/e52sLxpi.4JqsdeNDpB4YCOeTVlvNSaS"
+  }
+}
