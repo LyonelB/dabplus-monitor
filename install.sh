@@ -272,11 +272,19 @@ fi
 
 # Credentials admin
 "$VENV_DIR/bin/python3" - << PYEOF
-import sys
+import sys, json
 sys.path.insert(0, '.')
-from auth import Auth
-a = Auth()
-a.set_password('admin', '${ADMIN_PASSWORD}')
+from flask_bcrypt import Bcrypt
+_bcrypt = Bcrypt()
+password_hash = _bcrypt.generate_password_hash('${ADMIN_PASSWORD}').decode('utf-8')
+with open('config.json') as f:
+    c = json.load(f)
+if 'auth' not in c:
+    c['auth'] = {}
+c['auth']['username'] = 'admin'
+c['auth']['password_hash'] = password_hash
+with open('config.json', 'w') as f:
+    json.dump(c, f, indent=2, ensure_ascii=False)
 print("Compte admin créé")
 PYEOF
 
