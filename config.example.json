@@ -43,6 +43,6 @@
   },
   "auth": {
     "username": "admin",
-    "password_hash": "$2b$12$kodXzAb5dLwJO9Y.X9Rq/e52sLxpi.4JqsdeNDpB4YCOeTVlvNSaS"
+    "password_hash": "GENERATE_WITH: python3 -c \"from auth import Auth; Auth().set_password(\"admin\", \"your_password\")\""
   }
 }
