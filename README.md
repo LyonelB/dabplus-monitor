@@ -56,7 +56,32 @@ DABPlusMonitor (Python)
 
 ## Installation
 
-### 1. welle-monitor (fork welle.io)
+### Installation automatique (recommandée)
+
+```bash
+# Télécharger et lancer le script d'installation
+curl -fsSL https://raw.githubusercontent.com/LyonelB/dabplus-monitor/main/install.sh -o install.sh
+bash install.sh
+```
+
+> ⚠️ **Ne pas utiliser** `curl ... | bash` — la saisie du mot de passe nécessite un terminal interactif.
+
+Le script installe et configure automatiquement :
+- Dépendances système
+- Règles udev RTL-SDR
+- Mesure automatique du PPM (~2 min)
+- Icecast2 (sans interaction)
+- welle-monitor (compilation)
+- DAB+ Monitor (venv, config, service systemd)
+- Journal persistant + logrotate
+
+À la fin de l'installation, ouvrez `http://<ip>:5000` et lancez le scan Band III pour découvrir votre multiplex DAB+.
+
+---
+
+### Installation manuelle
+
+#### 1. welle-monitor (fork welle.io)
 
 ```bash
 sudo apt install cmake g++ libfaad-dev libfftw3-dev \
@@ -117,7 +142,16 @@ nano config.json
 
 Générer les credentials :
 ```bash
-python3 -c "from auth import Auth; a = Auth(); a.set_password('admin', 'votre_mot_de_passe')"
+python3 -c "
+import json
+from flask_bcrypt import Bcrypt
+bcrypt = Bcrypt()
+h = bcrypt.generate_password_hash('votre_mot_de_passe').decode('utf-8')
+c = json.load(open('config.json'))
+c.setdefault('auth', {}).update({'username': 'admin', 'password_hash': h})
+json.dump(c, open('config.json','w'), indent=2)
+print('OK')
+"
 ```
 
 ### 5. Service systemd
