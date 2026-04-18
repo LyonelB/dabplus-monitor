@@ -95,15 +95,11 @@ info "Mesure en cours... (${PPM_MEASURE_SECONDS} secondes)"
 PPM_VALUE=0
 PPM_LOG=$(mktemp)
 
-timeout $((PPM_MEASURE_SECONDS + 5)) rtl_test -p 2>&1 | tee "$PPM_LOG" &
-RTL_PID=$!
-sleep $PPM_MEASURE_SECONDS
-kill $RTL_PID 2>/dev/null || true
-wait $RTL_PID 2>/dev/null || true
+timeout $PPM_MEASURE_SECONDS rtl_test -p > "$PPM_LOG" 2>&1 || true
 
 # Extraire la dernière valeur cumulative PPM
-PPM_RAW=$(grep "cumulative PPM error" "$PPM_LOG" | tail -1 | grep -oP '[-0-9]+\.[0-9]+' || echo "0")
-PPM_VALUE=$(printf "%.0f" "$PPM_RAW" 2>/dev/null || echo "0")
+PPM_RAW=$(grep "cumulative PPM" "$PPM_LOG" | tail -1 | grep -oE '[-0-9]+$' || echo "0")
+PPM_VALUE=${PPM_RAW:-0}
 rm -f "$PPM_LOG"
 
 success "PPM mesuré : ${PPM_VALUE} ppm"
