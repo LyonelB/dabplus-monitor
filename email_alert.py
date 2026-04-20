@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Module de gestion des alertes email pour le système de surveillance FM
+Module de gestion des alertes email pour le système de surveillance DAB+
 """
 
 import smtplib
@@ -84,7 +84,7 @@ class EmailAlert:
             timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
             text_content = f"""
-ALERTE DE SURVEILLANCE FM
+ALERTE DE SURVEILLANCE DAB+
 ========================
 
 Station: {self.station_name}
@@ -96,7 +96,7 @@ Détails:
 {details}
 
 ---
-Système de surveillance FM - RTL-SDR
+Système de surveillance DAB+ - DAB+ Monitor
             """
 
             html_content = f"""
@@ -126,7 +126,7 @@ Système de surveillance FM - RTL-SDR
                     <div class="info"><span class="label">Date et heure:</span> {timestamp}</div>
                     <hr>
                     <div class="info"><span class="label">Détails:</span><br>{details}</div>
-                    <div class="footer">Système de surveillance FM - RTL-SDR</div>
+                    <div class="footer">Système de surveillance DAB+ - DAB+ Monitor</div>
                 </div>
             </body>
             </html>
@@ -173,10 +173,10 @@ Station: {self.station_name}
 Fréquence: {self.frequency}
 Date et heure: {timestamp}
 
-Le signal FM a été rétabli avec succès.
+Le signal DAB+ a été rétabli avec succès.
 
 ---
-Système de surveillance FM - RTL-SDR
+Système de surveillance DAB+ - DAB+ Monitor
             """
 
             html_content = f"""
@@ -204,8 +204,8 @@ Système de surveillance FM - RTL-SDR
                     <div class="info"><span class="label">Fréquence:</span> {self.frequency}</div>
                     <div class="info"><span class="label">Date et heure:</span> {timestamp}</div>
                     <hr>
-                    <p>Le signal FM a été rétabli avec succès.</p>
-                    <div class="footer">Système de surveillance FM - RTL-SDR</div>
+                    <p>Le signal DAB+ a été rétabli avec succès.</p>
+                    <div class="footer">Système de surveillance DAB+ - DAB+ Monitor</div>
                 </div>
             </body>
             </html>
