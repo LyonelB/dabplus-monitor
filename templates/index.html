@@ -533,6 +533,18 @@ function updateDashboard(stats) {
 
   // ── Grille services ──
   servicesData = stats.services || {};
+
+  // ── Mode veille : désélectionner le service dans le frontend ──
+  if (stats.veille_mode && selectedSid) {
+    // Retirer la sélection visuelle
+    const prevCard = document.getElementById('svc-card-' + selectedSid);
+    if (prevCard) prevCard.classList.remove('active');
+    selectedSid = null;
+    // Masquer le panneau de détail
+    const detailPanel = document.getElementById('service-detail');
+    if (detailPanel) detailPanel.style.display = 'none';
+  }
+
   updateServicesGrid(servicesData);
 
   // ── Détail service actif ──
